@@ -1,165 +1,158 @@
-from groq import Groq
 import base64
 import mimetypes
+import os
+import re
+from typing import Dict, List
 
-import os 
-from dotenv import load_dotenv 
-
-load_dotenv() 
-groq_key = os.getenv("GROK_API_KEY")
-client = Groq(api_key=groq_key)
+import cv2
+from dotenv import load_dotenv
+from groq import Groq
 
 
-PROMPT = """
-You are an OCR, layout analysis, and diagram detection engine.
+load_dotenv()
 
-TASKS:
-1. Detect ALL diagrams, figures, flowcharts, tables, graphs. 
-2. DONOT extract the text with it 
-3. EXTRACT the region containing the diagram only (5-10% text in the proximity is tolerable)
+DEFAULT_GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
-FOR EACH DIAGRAM:
-- Assign an ID: Diagram_1, Diagram_2, ...
-- Provide bounding box coordinates as percentages (0–100) relative to the image:
-  x_min, y_min, x_max, y_max
+DIAGRAM_PROMPT = """
+You are a document-layout analysis engine.
 
-STRICT RULES:
-- NO explanations, NO reasoning, NO commentary.
-- NO spelling or formatting correction.
-- NO inference of missing text.
-- If unclear text exists, write [illegible].
+TASK:
+Detect every diagram, figure, flowchart, table, graph, plot, equation box, or visual block in the image.
+Return only bounding boxes for those regions. Do not transcribe the whole page.
 
-OUTPUT FORMAT (FOLLOW EXACTLY):
+BOUNDING BOX RULES:
+- Coordinates are percentages from 0 to 100 relative to the full image.
+- Use tight boxes around the visual block.
+- Include nearby labels only when they are part of the diagram.
+- If no diagram exists, return [DIAGRAMS] and then NONE.
 
-[RAW_TEXT]
-<verbatim extracted text>
-
+OUTPUT FORMAT:
 [DIAGRAMS]
 Diagram_1:
 Bounds: x_min=__, y_min=__, x_max=__, y_max=__
 
-
 Diagram_2:
-Bounds: ...
-...
+Bounds: x_min=__, y_min=__, x_max=__, y_max=__
 
-Output ONLY this format.
+Output only this format.
 """
 
-def image_bytes_to_data_url(image_bytes, filename="image.png"):
+
+def get_groq_client() -> Groq:
+    api_key = os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "Missing Groq API key. Set GROQ_API_KEY in .env "
+            "(GROK_API_KEY is also supported for backward compatibility)."
+        )
+    return Groq(api_key=api_key)
+
+
+def get_groq_vision_model() -> str:
+    return os.getenv("GROQ_VISION_MODEL", DEFAULT_GROQ_VISION_MODEL)
+
+
+def image_bytes_to_data_url(image_bytes: bytes, filename: str = "image.png") -> str:
     mime_type, _ = mimetypes.guess_type(filename)
     if mime_type is None:
         mime_type = "image/png"
 
     encoded = base64.b64encode(image_bytes).decode("utf-8")
-    return f"data:{mime_type};base64,{encoded}"
+    return "data:{0};base64,{1}".format(mime_type, encoded)
 
-def extract_diagrams(image_path):
-    with open(image_path, "rb") as f:
-        image_bytes = f.read()
 
-    image_url = image_bytes_to_data_url(image_bytes, image_path)
+def extract_diagrams(image_path: str) -> str:
+    with open(image_path, "rb") as image_file:
+        image_bytes = image_file.read()
 
-    response = client.chat.completions.create(
-        model="meta-llama/llama-4-maverick-17b-128e-instruct",
+    image_url = image_bytes_to_data_url(image_bytes, os.path.basename(image_path))
+    response = get_groq_client().chat.completions.create(
+        model=get_groq_vision_model(),
         messages=[
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": PROMPT},
+                    {"type": "text", "text": DIAGRAM_PROMPT},
                     {"type": "image_url", "image_url": {"url": image_url}},
                 ],
             }
         ],
         temperature=0,
-        max_completion_tokens=2048,
+        max_completion_tokens=1024,
     )
+    return response.choices[0].message.content or ""
 
-    return response.choices[0].message.content
 
-import re
+def _clamp_percent(value: float) -> int:
+    return int(max(0, min(100, round(value))))
 
-def parse_diagram_bounds(llm_output):
+
+def parse_diagram_bounds(llm_output: str) -> List[Dict[str, int]]:
     diagrams = []
-
-    # More flexible pattern to handle variations in LLM output
-    # Handles both "x_min=10" and "x_min = 10" formats
-    pattern = (
-        r"Diagram_\d+:\s*\n"
-        r"Bounds:\s*x_min\s*=\s*(\d+)\s*,\s*y_min\s*=\s*(\d+)\s*,\s*x_max\s*=\s*(\d+)\s*,\s*y_max\s*=\s*(\d+)"
+    pattern = re.compile(
+        r"Diagram_\d+\s*:\s*"
+        r"(?:\r?\n|\s)*Bounds\s*:\s*"
+        r"x_min\s*=\s*(-?\d+(?:\.\d+)?)\s*,\s*"
+        r"y_min\s*=\s*(-?\d+(?:\.\d+)?)\s*,\s*"
+        r"x_max\s*=\s*(-?\d+(?:\.\d+)?)\s*,\s*"
+        r"y_max\s*=\s*(-?\d+(?:\.\d+)?)",
+        re.IGNORECASE,
     )
 
-    for match in re.finditer(pattern, llm_output):
-        diagrams.append({
-            "x_min": int(match.group(1)),
-            "y_min": int(match.group(2)),
-            "x_max": int(match.group(3)),
-            "y_max": int(match.group(4)),
-        })
+    for match in pattern.finditer(llm_output or ""):
+        x_min = _clamp_percent(float(match.group(1)))
+        y_min = _clamp_percent(float(match.group(2)))
+        x_max = _clamp_percent(float(match.group(3)))
+        y_max = _clamp_percent(float(match.group(4)))
+
+        if x_max > x_min and y_max > y_min:
+            diagrams.append(
+                {
+                    "x_min": x_min,
+                    "y_min": y_min,
+                    "x_max": x_max,
+                    "y_max": y_max,
+                }
+            )
 
     return diagrams
 
-import cv2
-import os
 
-def crop_diagrams(image_path, diagram_bounds, output_dir="cropped_diagrams"):
-    """
-    image_path: path to original image
-    diagram_bounds: list of dicts with x_min, y_min, x_max, y_max (percentages)
-    output_dir: folder to save cropped diagrams
-    """
-
+def crop_diagrams(
+    image_path: str,
+    diagram_bounds: List[Dict[str, int]],
+    output_dir: str = "cropped_diagrams",
+    filename_prefix: str = "diagram",
+) -> List[str]:
     os.makedirs(output_dir, exist_ok=True)
 
     image = cv2.imread(image_path)
     if image is None:
-        raise ValueError(f"Could not read image: {image_path}")
+        raise ValueError("Could not read image: {0}".format(image_path))
 
-    h, w, _ = image.shape
-    print(f"Image dimensions: {w}x{h}")
-
+    height, width = image.shape[:2]
     cropped_paths = []
 
-    for idx, bounds in enumerate(diagram_bounds, start=1):
-        x_min = int(bounds["x_min"] / 100 * w)
-        y_min = int(bounds["y_min"] / 100 * h)
-        x_max = int(bounds["x_max"] / 100 * w)
-        y_max = int(bounds["y_max"] / 100 * h)
+    for index, bounds in enumerate(diagram_bounds, start=1):
+        x_min = int(bounds["x_min"] / 100 * width)
+        y_min = int(bounds["y_min"] / 100 * height)
+        x_max = int(bounds["x_max"] / 100 * width)
+        y_max = int(bounds["y_max"] / 100 * height)
 
-        # Safety clamp
-        x_min = max(0, x_min)
-        y_min = max(0, y_min)
-        x_max = min(w, x_max)
-        y_max = min(h, y_max)
+        x_min = max(0, min(width - 1, x_min))
+        y_min = max(0, min(height - 1, y_min))
+        x_max = max(1, min(width, x_max))
+        y_max = max(1, min(height, y_max))
 
-        print(f"Diagram {idx}: Cropping region ({x_min},{y_min}) to ({x_max},{y_max})")
-
-        # Validate bounds
         if x_max <= x_min or y_max <= y_min:
-            print(f"  WARNING: Invalid bounds for diagram {idx}, skipping")
             continue
 
         cropped = image[y_min:y_max, x_min:x_max]
-
-        # Check if cropped image is valid
         if cropped.size == 0:
-            print(f"  WARNING: Empty cropped image for diagram {idx}, skipping")
             continue
 
-        output_path = os.path.join(output_dir, f"diagram_{idx}.png")
-        success = cv2.imwrite(output_path, cropped)
-        
-        if success:
-            print(f"  Saved to: {output_path}")
+        output_path = os.path.join(output_dir, "{0}_{1}.png".format(filename_prefix, index))
+        if cv2.imwrite(output_path, cropped):
             cropped_paths.append(output_path)
-        else:
-            print(f"  ERROR: Failed to save diagram {idx}")
 
     return cropped_paths
-
-
-img_path = rf"1.jpeg"
-result = extract_diagrams(img_path)
-print(result)
-bounds = parse_diagram_bounds(result)
-cropped_images = crop_diagrams(img_path,bounds)

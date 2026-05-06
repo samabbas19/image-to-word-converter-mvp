@@ -42,6 +42,9 @@ Thumbs.db
 # Project specific
 temp/
 cropped_diagrams/
+output/
+tools/
+*.rar
 *.docx
 *.jpeg
 *.jpg

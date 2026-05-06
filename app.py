@@ -1,551 +1,605 @@
-import streamlit as st
+import json
 import os
-from PIL import Image
-import io
-from backend_inline import process_image_to_docx_inline as process_image_to_docx
+import re
 from datetime import datetime
 
-# Page configuration
+import streamlit as st
+from PIL import Image
+
+from backend_inline import assess_image_quality, build_trace_payload, process_images_to_docx
+from latex_workflow import convert_images_to_latex_pdf
+
+
 st.set_page_config(
-    page_title="Image-to-Word Converter",
-    page_icon="📄",
+    page_title="Agentic Image-to-Word Converter",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# Custom CSS for stunning yellow-themed design
-st.markdown("""
+
+st.markdown(
+    """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
-    
-    * {
-        font-family: 'Inter', sans-serif;
+    :root {
+        --ink: #16221b;
+        --muted: #66746b;
+        --paper: #fbf8ee;
+        --paper-2: #f3efe1;
+        --panel: #fffdf8;
+        --line: #ddd5bf;
+        --leaf: #2f7652;
+        --leaf-dark: #143325;
+        --rust: #a8502d;
+        --blue: #335c75;
+        --amber: #d9a441;
     }
-    
-    /* Main background with gradient */
-    .main {
-        background: linear-gradient(135deg, #FFF9E6 0%, #FFFBF0 50%, #FFF4D6 100%);
-        padding: 2rem;
+
+    .stApp {
+        background:
+            linear-gradient(90deg, rgba(47, 118, 82, 0.055) 1px, transparent 1px),
+            linear-gradient(180deg, rgba(47, 118, 82, 0.045) 1px, transparent 1px),
+            linear-gradient(135deg, #fbf8ee 0%, #eef4ef 47%, #f7f0df 100%);
+        background-size: 40px 40px, 40px 40px, auto;
+        color: var(--ink);
     }
-    
-    /* Sidebar styling */
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #FFD700 0%, #FFA500 100%);
-        border-right: 3px solid #FF8C00;
+
+    [data-testid="stHeader"] {
+        background: rgba(251, 248, 238, 0.82);
+        backdrop-filter: blur(10px);
     }
-    
-    [data-testid="stSidebar"] h1, 
-    [data-testid="stSidebar"] h2, 
-    [data-testid="stSidebar"] h3,
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] li {
-        color: #1a1a1a !important;
+
+    [data-testid="stToolbar"] {
+        visibility: hidden;
     }
-    
-    /* Primary button styling */
-    .stButton>button {
-        width: 100%;
-        background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
-        color: #1a1a1a;
-        font-size: 18px;
-        font-weight: 700;
-        padding: 0.75rem 1.5rem;
-        border-radius: 12px;
-        border: none;
-        box-shadow: 0 4px 15px rgba(255, 165, 0, 0.4);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+
+    .block-container {
+        max-width: 1180px;
+        padding-top: 2.35rem;
+        padding-bottom: 3rem;
     }
-    
-    .stButton>button:hover {
-        background: linear-gradient(135deg, #FFA500 0%, #FF8C00 100%);
-        box-shadow: 0 8px 25px rgba(255, 140, 0, 0.6);
-        transform: translateY(-2px);
+
+    h1, h2, h3, p, li, label, span {
+        letter-spacing: 0;
     }
-    
-    .stButton>button:active {
-        transform: translateY(0px);
-    }
-    
-    /* Download button */
-    .stDownloadButton>button {
-        width: 100%;
-        background: linear-gradient(135deg, #32CD32 0%, #228B22 100%);
-        color: white;
-        font-size: 16px;
-        font-weight: 600;
-        padding: 0.75rem 1.5rem;
-        border-radius: 12px;
-        border: none;
-        box-shadow: 0 4px 15px rgba(50, 205, 50, 0.4);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    
-    .stDownloadButton>button:hover {
-        background: linear-gradient(135deg, #228B22 0%, #006400 100%);
-        box-shadow: 0 8px 25px rgba(34, 139, 34, 0.6);
-        transform: translateY(-2px);
-    }
-    
-    /* File uploader */
-    [data-testid="stFileUploader"] {
-        background: white;
-        border: 3px dashed #FFD700;
-        border-radius: 16px;
-        padding: 2rem;
-        transition: all 0.3s ease;
-    }
-    
-    [data-testid="stFileUploader"]:hover {
-        border-color: #FFA500;
-        background: #FFFEF8;
-        box-shadow: 0 8px 20px rgba(255, 215, 0, 0.2);
-    }
-    
-    /* Success box */
-    .success-box {
-        padding: 1.5rem;
-        background: linear-gradient(135deg, #90EE90 0%, #32CD32 100%);
-        border: none;
-        border-radius: 12px;
-        color: #1a1a1a;
-        font-weight: 600;
-        box-shadow: 0 4px 15px rgba(50, 205, 50, 0.3);
-        margin: 1rem 0;
-    }
-    
-    /* Info box */
-    .info-box {
-        padding: 1.5rem;
-        background: linear-gradient(135deg, #FFFACD 0%, #FFD700 100%);
-        border: none;
-        border-radius: 12px;
-        color: #1a1a1a;
-        font-weight: 500;
-        box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3);
-        margin: 1rem 0;
-    }
-    
-    /* Warning box */
-    .warning-box {
-        padding: 1.5rem;
-        background: linear-gradient(135deg, #FFE4B5 0%, #FFA500 100%);
-        border: none;
-        border-radius: 12px;
-        color: #1a1a1a;
-        font-weight: 500;
-        box-shadow: 0 4px 15px rgba(255, 165, 0, 0.3);
-        margin: 1rem 0;
-    }
-    
-    /* Headers */
+
     h1 {
-        background: linear-gradient(135deg, #FFD700 0%, #FF8C00 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        font-weight: 800;
-        text-align: center;
-        padding-bottom: 1rem;
-        font-size: 3rem;
-        text-shadow: 2px 2px 4px rgba(255, 215, 0, 0.1);
+        color: var(--ink);
+        font-family: Georgia, Cambria, serif;
+        font-size: 3.15rem;
+        line-height: 1;
+        margin-bottom: 0.4rem;
     }
-    
+
     h2, h3 {
-        color: #FF8C00;
-        font-weight: 700;
+        color: var(--ink);
+        font-family: Candara, "Segoe UI", sans-serif;
+        font-weight: 800;
     }
-    
-    /* Feature cards */
-    .feature-card {
-        background: white;
-        padding: 2rem;
-        border-radius: 16px;
-        box-shadow: 0 8px 30px rgba(255, 165, 0, 0.15);
-        margin-bottom: 1.5rem;
-        border: 2px solid #FFD700;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-        overflow: hidden;
+
+    .eyebrow {
+        color: var(--rust);
+        font-weight: 800;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
     }
-    
-    .feature-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 4px;
-        background: linear-gradient(90deg, #FFD700 0%, #FFA500 100%);
-    }
-    
-    .feature-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 12px 40px rgba(255, 140, 0, 0.25);
-        border-color: #FFA500;
-    }
-    
-    .feature-card h4 {
-        color: #FF8C00;
-        font-weight: 700;
-        margin-bottom: 0.5rem;
-        font-size: 1.3rem;
-    }
-    
-    .feature-card p {
-        color: #4a4a4a;
+
+    .lede {
+        color: #47564d;
+        font-size: 1.07rem;
         line-height: 1.6;
+        max-width: 760px;
+        margin: 0 0 1rem 0;
     }
-    
-    /* Image container */
-    .stImage {
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-        border: 3px solid #FFD700;
-        transition: all 0.3s ease;
+
+    .hero-note {
+        border-left: 5px solid var(--leaf);
+        background: rgba(255, 253, 248, 0.86);
+        box-shadow: 0 16px 34px rgba(40, 50, 39, 0.08);
+        padding: 1rem 1.1rem;
+        margin: 1.15rem 0 1.25rem;
+        color: var(--ink);
     }
-    
-    .stImage:hover {
-        box-shadow: 0 12px 35px rgba(255, 165, 0, 0.3);
-        transform: scale(1.02);
+
+    .hero-note strong {
+        color: var(--leaf-dark);
     }
-    
-    /* Expander */
-    .streamlit-expanderHeader {
-        background: linear-gradient(135deg, #FFFACD 0%, #FFD700 100%);
+
+    .desk-card {
+        border: 1px solid var(--line);
+        background: rgba(255, 253, 248, 0.93);
         border-radius: 8px;
-        font-weight: 600;
-        color: #1a1a1a;
+        padding: 1.05rem 1.05rem 1.15rem;
+        box-shadow: 0 18px 40px rgba(48, 55, 44, 0.10);
+        min-height: 172px;
     }
-    
-    /* Text area */
-    .stTextArea textarea {
-        border: 2px solid #FFD700;
+
+    .empty-state {
+        border: 1px dashed #b9b092;
+        background: #f9f1d9;
         border-radius: 8px;
-        font-family: 'Courier New', monospace;
+        padding: 1rem;
+        color: #42351f;
+        line-height: 1.55;
     }
-    
-    /* Spinner */
-    .stSpinner > div {
-        border-top-color: #FFD700 !important;
+
+    .quiet-note {
+        color: var(--muted);
+        font-size: 0.92rem;
+        line-height: 1.55;
     }
-    
-    /* Divider */
-    hr {
-        border: none;
-        height: 2px;
-        background: linear-gradient(90deg, transparent 0%, #FFD700 50%, transparent 100%);
-        margin: 2rem 0;
+
+    .status-pill {
+        display: inline-block;
+        border: 1px solid #c9bea1;
+        border-radius: 999px;
+        padding: 0.22rem 0.62rem;
+        font-size: 0.78rem;
+        font-weight: 800;
+        color: #213229;
+        background: #f6ecd2;
+        margin: 0 0.35rem 0.45rem 0;
     }
-    
-    /* Animations */
-    @keyframes pulse {
-        0%, 100% {
-            opacity: 1;
-        }
-        50% {
-            opacity: 0.8;
-        }
+
+    .mapping-card {
+        border-top: 3px solid var(--leaf);
+        background: rgba(255, 253, 248, 0.78);
+        padding: 0.8rem 0.9rem;
+        border-radius: 0 0 8px 8px;
+        min-height: 132px;
     }
-    
-    .pulse {
-        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
+    .mapping-card b {
+        display: block;
+        margin-bottom: 0.38rem;
+        color: var(--leaf-dark);
     }
-    
-    /* Footer */
-    .footer {
-        text-align: center;
-        color: #666;
-        padding: 2rem;
-        background: linear-gradient(135deg, #FFFACD 0%, #FFE4B5 100%);
-        border-radius: 12px;
-        margin-top: 2rem;
-        box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2);
+
+    .trace-step {
+        border-left: 4px solid var(--blue);
+        background: rgba(255, 253, 248, 0.72);
+        padding: 0.55rem 0.75rem;
+        margin: 0.45rem 0;
+        color: var(--ink);
+        font-size: 0.92rem;
+        line-height: 1.45;
     }
-    
-    /* Metric styling */
+
+    .requirement-grid {
+        border: 1px solid var(--line);
+        background: rgba(255, 253, 248, 0.72);
+        border-radius: 8px;
+        padding: 0.85rem;
+        min-height: 128px;
+    }
+
+    .requirement-grid b {
+        color: var(--leaf-dark);
+    }
+
+    [data-testid="stSidebar"] {
+        background:
+            linear-gradient(180deg, #163626 0%, #10281d 100%);
+        border-right: 1px solid #0b1f16;
+    }
+
+    [data-testid="stSidebar"] * {
+        color: #f8f0d9 !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+    [data-testid="stSidebar"] small {
+        color: #c9d8ca !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stAlert"] {
+        background: #e5f3df;
+        border: 1px solid #9ec296;
+        border-radius: 8px;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stAlert"] * {
+        color: #173521 !important;
+    }
+
+    [data-testid="stSidebar"] hr {
+        border-color: rgba(248, 240, 217, 0.2);
+    }
+
+    .stButton>button, .stDownloadButton>button {
+        width: 100%;
+        border-radius: 8px;
+        border: 1px solid #1f5c3f;
+        background: #2f7652;
+        color: #fff;
+        font-weight: 800;
+        min-height: 2.8rem;
+        box-shadow: 0 10px 22px rgba(47, 118, 82, 0.24);
+    }
+
+    .stButton>button:hover, .stDownloadButton>button:hover {
+        border-color: #143d2b;
+        background: #245e41;
+        color: #fff;
+    }
+
+    .stButton>button:disabled {
+        background: #ded7c5;
+        color: #706b5f;
+        border-color: #cfc4ac;
+        box-shadow: none;
+    }
+
+    [data-testid="stFileUploader"] {
+        background: transparent;
+    }
+
+    [data-testid="stFileUploaderDropzone"] {
+        background: #fffdf8 !important;
+        border: 2px dashed #9eae91 !important;
+        border-radius: 8px !important;
+        color: var(--ink) !important;
+        padding: 1rem !important;
+    }
+
+    [data-testid="stFileUploaderDropzone"] * {
+        color: var(--ink) !important;
+    }
+
+    [data-testid="stFileUploaderDropzone"] button {
+        background: #153826 !important;
+        border: 1px solid #153826 !important;
+        color: #fff7e5 !important;
+        border-radius: 8px !important;
+    }
+
+    [data-testid="stFileUploaderDropzone"] button * {
+        color: #fff7e5 !important;
+    }
+
+    [data-testid="stAlert"] {
+        border-radius: 8px;
+    }
+
     [data-testid="stMetricValue"] {
-        color: #FF8C00;
+        color: var(--leaf);
+        font-weight: 800;
+    }
+
+    [data-testid="stTabs"] button {
+        color: var(--ink) !important;
         font-weight: 700;
+    }
+
+    textarea {
+        background: #fffdf8 !important;
+        color: var(--ink) !important;
     }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-# Header with emoji and gradient
-st.markdown("""
-    <div style="text-align: center; padding: 1rem 0;">
-        <h1>✨ Image-to-Word Converter ✨</h1>
-        <p style="font-size: 1.2rem; color: #666; font-weight: 500;">
-            Transform your scanned documents into editable Word files with AI-powered precision
-        </p>
-    </div>
-""", unsafe_allow_html=True)
 
-st.markdown("---")
+def safe_filename(filename):
+    name, ext = os.path.splitext(filename)
+    clean_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("_") or "page"
+    clean_ext = ext.lower() if ext else ".jpeg"
+    return clean_name[:60] + clean_ext
 
-# Sidebar
-with st.sidebar:
-    st.markdown("""
-        <div style="text-align: center; padding: 1rem 0;">
-            <h2 style="color: #1a1a1a;">ℹ️ About</h2>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div style="background: rgba(255, 255, 255, 0.3); padding: 1rem; border-radius: 12px; margin: 1rem 0;">
-        <p style="color: #1a1a1a; font-weight: 500;">
-        This application converts images (JPG/PNG) to formatted Word documents (.docx) with AI-powered OCR.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-    **✨ Features:**
-    - 🔍 Advanced OCR using AI
-    - 📝 Preserves formatting
-    - 🖼️ Extracts diagrams & images
-    - 📊 Handles handwritten text
-    - ⚡ Lightning-fast processing
-    
-    **📁 Supported Formats:**
-    - JPG/JPEG
-    - PNG
-    
-    **🚀 Quick Start:**
-    1. Upload an image
-    2. Click "Convert to DOCX"
-    3. Download your document
-    """)
-    
-    st.markdown("---")
-    st.markdown("""
-        <div style="background: rgba(255, 255, 255, 0.3); padding: 1rem; border-radius: 8px; text-align: center;">
-            <p style="color: #1a1a1a; font-weight: 600; margin: 0;">
-                📚 Project Phase 1
-            </p>
-            <p style="color: #1a1a1a; font-size: 0.9rem; margin: 0;">
-                Virtual Company Task 1
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
 
-# Main content
-col1, col2 = st.columns([1, 1], gap="large")
+def save_uploads(uploaded_files, temp_dir):
+    os.makedirs(temp_dir, exist_ok=True)
+    saved_paths = []
+    for index, uploaded_file in enumerate(uploaded_files, start=1):
+        filename = "{0:02d}_{1}".format(index, safe_filename(uploaded_file.name))
+        path = os.path.join(temp_dir, filename)
+        with open(path, "wb") as output_file:
+            output_file.write(uploaded_file.getvalue())
+        saved_paths.append(path)
+    return saved_paths
 
-with col1:
-    st.markdown("""
-        <div style="background: white; padding: 1.5rem; border-radius: 16px; box-shadow: 0 8px 30px rgba(255, 165, 0, 0.15); border: 2px solid #FFD700;">
-            <h2 style="color: #FF8C00; margin-top: 0;">📤 Upload Image</h2>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # File uploader
-    uploaded_file = st.file_uploader(
-        "Choose an image file (JPG, PNG)",
-        type=['jpg', 'jpeg', 'png'],
-        help="Upload a clear image of a document for best results",
-        label_visibility="collapsed"
+
+def show_quality_report(report):
+    st.markdown(
+        '<span class="status-pill">{0}</span><span class="status-pill">{1} x {2}px</span>'.format(
+            report.status, report.width, report.height
+        ),
+        unsafe_allow_html=True,
     )
-    
-    if uploaded_file is not None:
-        # Display uploaded image
-        image = Image.open(uploaded_file)
-        st.image(image, caption="📸 Uploaded Image", width="stretch")
-        
-        # Image info
-        st.markdown(f"""
-        <div class="info-box">
-        <strong>📊 Image Details:</strong><br>
-        📏 Dimensions: {image.size[0]} × {image.size[1]} pixels<br>
-        📦 Format: {image.format}<br>
-        💾 File Size: {len(uploaded_file.getvalue()) / 1024:.2f} KB
-        </div>
-        """, unsafe_allow_html=True)
+    metric_cols = st.columns(3)
+    metric_cols[0].metric("Light", report.brightness)
+    metric_cols[1].metric("Contrast", report.contrast)
+    metric_cols[2].metric("Sharpness", report.blur_score)
 
-with col2:
-    st.markdown("""
-        <div style="background: white; padding: 1.5rem; border-radius: 16px; box-shadow: 0 8px 30px rgba(255, 165, 0, 0.15); border: 2px solid #FFD700;">
-            <h2 style="color: #FF8C00; margin-top: 0;">📥 Output</h2>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    if uploaded_file is not None:
-        # Process button
-        if st.button("🚀 Convert to DOCX", type="primary"):
-            with st.spinner("🔄 Processing image... Extracting text and diagrams..."):
-                try:
-                    # Create temp directory if it doesn't exist
-                    temp_dir = "temp"
-                    os.makedirs(temp_dir, exist_ok=True)
-                    
-                    # Save uploaded file temporarily
-                    temp_image_path = os.path.join(temp_dir, uploaded_file.name)
-                    with open(temp_image_path, "wb") as f:
-                        f.write(uploaded_file.getvalue())
-                    
-                    # Generate output filename
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    output_filename = f"converted_{timestamp}.docx"
-                    output_path = os.path.join(temp_dir, output_filename)
-                    
-                    # Process image
-                    extracted_text, docx_path = process_image_to_docx(temp_image_path, output_path)
-                    
-                    # Store in session state
-                    st.session_state['extracted_text'] = extracted_text
-                    st.session_state['docx_path'] = docx_path
-                    st.session_state['output_filename'] = output_filename
-                    
-                    st.balloons()
-                    st.success("✅ Conversion completed successfully!")
-                    
-                except Exception as e:
-                    st.error(f"❌ Error during conversion: {str(e)}")
-                    st.exception(e)
-        
-        # Display results if available
-        if 'extracted_text' in st.session_state:
-            st.markdown("""
-            <div class="success-box">
-            ✅ <strong>Conversion Complete!</strong><br>
-            Your document is ready with extracted text and diagrams.
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Download button
-            with open(st.session_state['docx_path'], 'rb') as f:
-                docx_bytes = f.read()
-            
-            st.download_button(
-                label="📥 Download DOCX File",
-                data=docx_bytes,
-                file_name=st.session_state['output_filename'],
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                type="primary"
-            )
-            
-            # Show extracted text preview
-            with st.expander("👁️ Preview Extracted Text"):
-                st.text_area(
-                    "Extracted Content",
-                    st.session_state['extracted_text'],
-                    height=300,
-                    disabled=True
-                )
+    if report.issues:
+        st.warning("; ".join(report.issues))
     else:
-        st.markdown("""
-        <div class="warning-box">
-        <strong>👆 Get Started</strong><br>
-        Upload an image on the left to begin the conversion process.
-        </div>
-        """, unsafe_allow_html=True)
+        st.success("Quality gate passed.")
 
-# Footer section
-st.markdown("---")
 
-# Statistics/Features section
-st.markdown("""
-    <div style="text-align: center; margin: 2rem 0;">
-        <h2 style="color: #FF8C00;">✨ Key Features</h2>
-    </div>
-""", unsafe_allow_html=True)
+def render_list(items):
+    if not items:
+        st.caption("None recorded.")
+        return
+    for item in items:
+        st.markdown("- {0}".format(item))
 
-col1, col2, col3 = st.columns(3, gap="large")
 
-with col1:
-    st.markdown("""
-    <div class="feature-card">
-    <h4>🎯 High Accuracy</h4>
-    <p>Advanced AI-powered OCR for accurate text extraction from both printed and handwritten documents with diagram detection.</p>
-    </div>
-    """, unsafe_allow_html=True)
+def review_policy_value(label):
+    if label.startswith("Always"):
+        return "review_all"
+    return "quality_gate"
 
-with col2:
-    st.markdown("""
-    <div class="feature-card">
-    <h4>📝 Format Preservation</h4>
-    <p>Maintains document structure including headings, bullet points, paragraph formatting, and embedded diagrams.</p>
-    </div>
-    """, unsafe_allow_html=True)
 
-with col3:
-    st.markdown("""
-    <div class="feature-card">
-    <h4>⚡ Fast Processing</h4>
-    <p>Quick conversion with real-time progress updates, instant download capability, and automatic diagram extraction.</p>
-    </div>
-    """, unsafe_allow_html=True)
+with st.sidebar:
+    st.markdown("### Document Agent")
+    st.caption("A semi-autonomous workflow for handwritten notes.")
+    include_quality_preview = st.toggle("Preview page quality", value=True)
+    show_agent_trace = st.toggle("Show conversion trace", value=True)
+    review_policy_label = st.selectbox(
+        "Human review gate",
+        ["Quality-based review", "Always require review"],
+        index=0,
+    )
+    review_policy = review_policy_value(review_policy_label)
 
-# Instructions
-with st.expander("📖 Detailed Instructions & Tips"):
-    st.markdown("""
-    ### 🎓 How to Use This Application
-    
-    **Step 1: Upload Your Image**
-    - Click on the "Browse files" button or drag and drop your image
-    - Supported formats: JPG, JPEG, PNG
-    - For best results, use clear, well-lit images
-    
-    **Step 2: Review the Preview**
-    - Check the uploaded image preview
-    - Verify image quality and readability
-    - Review the image details shown
-    
-    **Step 3: Convert to DOCX**
-    - Click the "Convert to DOCX" button
-    - Wait for the processing to complete (usually 10-30 seconds)
-    - The system will extract both text and diagrams
-    
-    **Step 4: Download Your Document**
-    - Click the "Download DOCX File" button
-    - Open the file in Microsoft Word or compatible software
-    - Edit and format as needed
-    - Diagrams will appear in a separate section
-    
-    ### 💡 Tips for Best Results
-    
-    - ✅ Use high-resolution images (at least 300 DPI)
-    - ✅ Ensure good lighting and contrast
-    - ✅ Keep the document flat and avoid shadows
-    - ✅ Use clear, legible handwriting or printed text
-    - ✅ Ensure diagrams are clearly visible
-    - ❌ Avoid blurry or low-quality images
-    - ❌ Avoid images with heavy background patterns
-    - ❌ Avoid extreme angles or distortion
-    
-    ### 🔧 Troubleshooting
-    
-    **Problem:** Text not extracted correctly
-    - **Solution:** Try uploading a higher quality image with better lighting
-    
-    **Problem:** Diagrams not detected
-    - **Solution:** Ensure diagrams are clearly separated from text and have visible boundaries
-    
-    **Problem:** Formatting not preserved
-    - **Solution:** Ensure the original document has clear structure and spacing
-    
-    **Problem:** Processing takes too long
-    - **Solution:** Check your internet connection or try a smaller image
-    """)
+    st.divider()
+    st.markdown("### Review Policy")
+    st.caption("The agent can prepare a DOCX, but handwritten OCR still needs human review before submission.")
 
-# Footer
-st.markdown("""
-<div class="footer">
-    <h3 style="color: #FF8C00; margin-top: 0;">📄 Image-to-Word Converter</h3>
-    <p style="font-size: 1.1rem; color: #666; margin: 0.5rem 0;">
-        Developed for Project Phase 1: Virtual Company
-    </p>
-    <p style="color: #888; margin: 0.5rem 0;">
-        Powered by Groq AI 🤖 | Streamlit ⚡ | Python 🐍
-    </p>
-    <p style="color: #999; font-size: 0.9rem; margin-top: 1rem;">
-        © 2026 | Built with ❤️ and ☕
-    </p>
-</div>
-""", unsafe_allow_html=True)
+    st.divider()
+    st.markdown("### Data Notice")
+    st.caption(
+        "Uploaded notes are processed for conversion only. Content ownership stays with the user; do not upload material you cannot process."
+    )
+
+    st.divider()
+    st.markdown("### Runtime")
+    api_key_ready = bool(os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY"))
+    if api_key_ready:
+        st.success("Groq API key detected.")
+    else:
+        st.error("Set GROQ_API_KEY in .env before conversion.")
+
+
+st.markdown('<div class="eyebrow">Phase 2 agentic upgrade</div>', unsafe_allow_html=True)
+st.title("Image-to-Word, with a reviewer at the desk")
+st.markdown(
+    '<p class="lede">Upload the handwritten pages, let the agent inspect the image quality, '
+    "extract the notes, preserve diagrams, and mark anything that deserves a second look.</p>",
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<div class="hero-note"><strong>What changed from Phase 1:</strong> this version is not just a converter. '
+    "It observes each page, decides whether preprocessing or review is needed, acts through OCR and diagram tools, "
+    "then keeps a short run memory for transparency.</div>",
+    unsafe_allow_html=True,
+)
+
+uploaded_files = st.file_uploader(
+    "Add document pages",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=True,
+    help="Upload pages in order. For this project, use 1.jpeg, 2.jpeg, and 3.jpeg.",
+)
+
+left_col, right_col = st.columns([1.08, 0.92], gap="large")
+
+with left_col:
+    with st.container(border=True):
+        st.subheader("Pages on the desk")
+        if uploaded_files:
+            st.caption("{0} page(s) queued. Keep them in reading order before converting.".format(len(uploaded_files)))
+            preview_tabs = st.tabs(["Page {0}".format(index) for index in range(1, len(uploaded_files) + 1)])
+            for tab, uploaded_file in zip(preview_tabs, uploaded_files):
+                with tab:
+                    image = Image.open(uploaded_file)
+                    st.image(image, caption=uploaded_file.name, use_container_width=True)
+                    if include_quality_preview:
+                        preview_dir = os.path.join("temp", "preview")
+                        saved_path = save_uploads([uploaded_file], preview_dir)[0]
+                        show_quality_report(assess_image_quality(saved_path))
+        else:
+            st.markdown(
+                '<div class="empty-state"><strong>No pages uploaded yet.</strong><br>'
+                "Start with the three chemistry note images: 1.jpeg, 2.jpeg, and 3.jpeg. "
+                "The agent will scan them as one document and place diagrams back into the DOCX.</div>",
+                unsafe_allow_html=True,
+            )
+
+with right_col:
+    with st.container(border=True):
+        st.subheader("Conversion bench")
+        ready = bool(uploaded_files) and api_key_ready
+        st.markdown(
+            '<p class="quiet-note">The generated Word file includes a small agent observation table per page, '
+            "so your Phase 2 demo can show how the system made its decisions.</p>",
+            unsafe_allow_html=True,
+        )
+
+        if st.button("Run agentic conversion", type="primary", disabled=not ready):
+            temp_dir = "temp"
+            image_paths = save_uploads(uploaded_files, temp_dir)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_filename = "agentic_conversion_{0}.docx".format(timestamp)
+            output_path = os.path.join(temp_dir, output_filename)
+
+            with st.spinner("Observing pages, extracting text, cropping diagrams, and assembling DOCX..."):
+                extracted_text, docx_path, results, memory = process_images_to_docx(
+                    image_paths,
+                    output_path,
+                    review_policy=review_policy,
+                )
+
+            st.session_state["docx_path"] = docx_path
+            st.session_state["output_filename"] = output_filename
+            st.session_state["results"] = results
+            st.session_state["memory"] = memory
+            st.session_state["extracted_text"] = extracted_text
+            st.session_state["trace_payload"] = build_trace_payload(results, memory)
+            st.success("Conversion completed. Review the trace before trusting the output.")
+
+        st.divider()
+        latex_ready = bool(uploaded_files)
+        st.markdown(
+            '<p class="quiet-note">The LaTeX/PDF path is separate from the DOCX agentic conversion. '
+            "It writes student-facing notes and a separate processing report under output/latex.</p>",
+            unsafe_allow_html=True,
+        )
+        if st.button("Convert to LaTeX/PDF", disabled=not latex_ready):
+            latex_temp_dir = os.path.join("temp", "latex")
+            latex_image_paths = save_uploads(uploaded_files, latex_temp_dir)
+
+            with st.spinner("Reconstructing chemistry notes into LaTeX and compiling PDF if supported..."):
+                latex_result = convert_images_to_latex_pdf(latex_image_paths)
+
+            st.session_state["latex_tex_path"] = latex_result.tex_path
+            st.session_state["latex_pdf_path"] = latex_result.pdf_path
+            st.session_state["latex_report_path"] = latex_result.report_path
+            st.session_state["latex_compile_message"] = latex_result.compile_message
+
+            if latex_result.pdf_path:
+                st.success("LaTeX/PDF handout generated.")
+            else:
+                st.info("LaTeX handout and processing report generated. {0}".format(latex_result.compile_message))
+
+        if "latex_tex_path" in st.session_state:
+            latex_cols = st.columns(3)
+            with open(st.session_state["latex_tex_path"], "rb") as tex_file:
+                latex_cols[0].download_button(
+                    "Download notes.tex",
+                    data=tex_file.read(),
+                    file_name="notes.tex",
+                    mime="text/x-tex",
+                )
+
+            if st.session_state.get("latex_pdf_path"):
+                with open(st.session_state["latex_pdf_path"], "rb") as pdf_file:
+                    latex_cols[1].download_button(
+                        "Download notes.pdf",
+                        data=pdf_file.read(),
+                        file_name="notes.pdf",
+                        mime="application/pdf",
+                    )
+            else:
+                latex_cols[1].caption("notes.pdf requires a LaTeX engine on PATH.")
+
+            with open(st.session_state["latex_report_path"], "rb") as report_file:
+                latex_cols[2].download_button(
+                    "Download processing report",
+                    data=report_file.read(),
+                    file_name="processing_report.md",
+                    mime="text/markdown",
+                )
+
+        if "docx_path" in st.session_state:
+            with open(st.session_state["docx_path"], "rb") as docx_file:
+                st.download_button(
+                    "Download DOCX",
+                    data=docx_file.read(),
+                    file_name=st.session_state["output_filename"],
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    type="primary",
+                )
+
+            memory = st.session_state.get("memory", {})
+            metrics = st.columns(4)
+            metrics[0].metric("Pages", memory.get("pages_processed", 0))
+            metrics[1].metric("Diagrams", memory.get("diagrams_detected", 0))
+            metrics[2].metric("Review flags", memory.get("pages_requiring_review", 0))
+            metrics[3].metric("Run risk", memory.get("run_risk_level", "Low"))
+
+            if memory.get("pages_requiring_review", 0):
+                st.warning("Review required for: {0}".format(", ".join(memory.get("review_pages", []))))
+
+            if memory.get("tool_warnings", 0):
+                st.error("{0} tool warning(s) were recorded in the trace.".format(memory.get("tool_warnings", 0)))
+
+            trace_payload = st.session_state.get("trace_payload")
+            if trace_payload:
+                st.download_button(
+                    "Download agent trace JSON",
+                    data=json.dumps(trace_payload, indent=2),
+                    file_name="agent_trace_{0}.json".format(memory.get("run_id", "run")),
+                    mime="application/json",
+                )
+
+            with st.expander("Extracted text preview", expanded=False):
+                st.text_area("OCR text", st.session_state["extracted_text"], height=280)
+
+        elif not api_key_ready:
+            st.warning("The interface is ready, but conversion needs a Groq API key.")
+        elif uploaded_files:
+            st.info("Pages are ready. Start conversion when the order looks right.")
+        else:
+            st.info("Upload pages first, then the conversion button will unlock.")
+
+
+if show_agent_trace and "results" in st.session_state:
+    st.subheader("Agent trace")
+    for index, result in enumerate(st.session_state["results"], start=1):
+        with st.expander("Page {0}: {1}".format(index, result.quality.filename), expanded=index == 1):
+            show_quality_report(result.quality)
+            trace_cols = st.columns(4)
+            trace_cols[0].metric("Status", result.status.replace("_", " "))
+            trace_cols[1].metric("Risk", result.decision.risk_level)
+            trace_cols[2].metric("Review", "Yes" if result.decision.human_review_required else "No")
+            trace_cols[3].metric("Diagrams", len(result.diagram_data))
+            st.markdown("**Autonomy:** {0}".format(result.decision.autonomy_level))
+            st.markdown("**Diagram strategy:** {0}".format(result.decision.diagram_strategy))
+            st.markdown(
+                "**Preprocessing:** {0}".format(", ".join(result.decision.preprocessing_applied) or "None")
+            )
+            st.markdown("**Rationale:** {0}".format("; ".join(result.decision.rationale)))
+
+            if result.warnings:
+                st.error("; ".join(result.warnings))
+
+            st.markdown("**Observe -> Interpret -> Decide -> Act -> Learn**")
+            for step in result.trace:
+                st.markdown('<div class="trace-step">{0}</div>'.format(step), unsafe_allow_html=True)
+
+    memory = st.session_state.get("memory", {})
+    with st.expander("Run memory, risk, and safety", expanded=True):
+        memory_cols = st.columns(3)
+        memory_cols[0].markdown("**Agent type:** {0}".format(memory.get("agent_type", "")))
+        memory_cols[1].markdown("**Review policy:** {0}".format(memory.get("review_policy", "")))
+        memory_cols[2].markdown("**Memory policy:** {0}".format(memory.get("memory_policy", "")))
+
+        st.markdown("**Agentic requirements covered**")
+        render_list(memory.get("agentic_requirements", []))
+
+        st.markdown("**Safety controls**")
+        render_list(memory.get("safety_controls", []))
+
+        st.markdown("**Risk assessment**")
+        for risk in memory.get("risk_register", []):
+            st.markdown(
+                "- **{0}**: {1} Mitigation: {2}".format(
+                    risk.get("risk", ""),
+                    risk.get("impact", ""),
+                    risk.get("mitigation", ""),
+                )
+            )
+
+
+st.subheader("Phase 2 agent map")
+mapping = [
+    ("Perception", "Checks page size, light, contrast, sharpness, OCR input, and visual regions."),
+    ("Interpretation", "Turns raw image signals into ready, review recommended, or human review required."),
+    ("Decision", "Chooses preprocessing, diagram extraction, review policy, and risk level."),
+    ("Action", "Runs OCR, crops diagrams, builds the DOCX, and exposes the trace."),
+    ("Memory", "Keeps short-term run context: pages, warnings, diagrams, risks, and review flags."),
+    ("Human control", "User selects files, starts conversion, reviews flags, and accepts the DOCX."),
+    ("Ethical design", "Shows uncertainty, protects content ownership, and avoids permanent user-note memory."),
+    ("Safety", "Uses environment secrets, logs decisions, flags risky pages, and supports trace export."),
+]
+for start in range(0, len(mapping), 4):
+    mapping_cols = st.columns(4)
+    for column, (title, body) in zip(mapping_cols, mapping[start : start + 4]):
+        column.markdown(
+            '<div class="mapping-card"><b>{0}</b>{1}</div>'.format(title, body),
+            unsafe_allow_html=True,
+        )

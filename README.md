@@ -1,163 +1,96 @@
-# 📄 Image-to-Word Converter
+# Agentic Image-to-Word Converter
 
-An AI-powered web application that converts scanned documents and handwritten notes into editable Word documents with automatic diagram extraction and inline placement.
+Phase 1 was a Streamlit MVP that converted one document image into a Word file using Groq vision OCR. Phase 2 upgrades it into a semi-autonomous document agent for handwritten notes.
 
-![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
-![Streamlit](https://img.shields.io/badge/streamlit-1.28+-red.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
+## What Changed in Phase 2
 
-## ✨ Features
+- Batch conversion: upload `1.jpeg`, `2.jpeg`, and `3.jpeg` together and receive one combined DOCX.
+- Complete agent workflow: observe image quality, interpret risk, decide preprocessing/review actions, act through OCR and diagram extraction, then summarize run memory.
+- Explicit run memory: the app records pages processed, review flags, common quality risks, tool warnings, diagrams, safety controls, and the run risk level.
+- Trace export: the UI can download a JSON audit trace with per-page observations, decisions, actions, warnings, and diagram coordinates.
+- Safer backend: no API calls during module import, lazy Groq client creation, and clear missing-key errors.
+- Better diagram handling: robust coordinate parsing, per-page crop names, and inline placement in the generated DOCX.
+- Human-in-the-loop: pages with quality risks are flagged for review instead of silently trusted, and the sidebar can require review for all pages.
+- Safety and legal awareness: the UI and generated DOCX include privacy, IPR, risk, and safety controls required by the Phase 2 brief.
+- Cleaner frontend: fixed broken character encoding, improved layout, and exposed agent trace information.
 
-- 🔍 **Advanced OCR** - AI-powered text extraction using Groq's Llama 4 model
-- 🖼️ **Automatic Diagram Detection** - Intelligently identifies and extracts diagrams, flowcharts, and tables
-- 📍 **Inline Diagram Placement** - Places diagrams at their correct positions in the text flow
-- 📝 **Format Preservation** - Maintains headings, bullet points, and paragraph structure
-- ✍️ **Handwriting Support** - Handles both printed and handwritten text
-- 🎨 **Modern UI** - Beautiful yellow-themed interface with smooth animations
-- ⚡ **Fast Processing** - Quick conversion with real-time progress updates
+## Run Locally
 
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Python 3.8 or higher
-- Groq API key ([Get one here](https://console.groq.com))
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/Image-to-Word-Converter.git
-   cd Image-to-Word-Converter
-   ```
-
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Set up environment variables**
-   
-   Create a `.env` file in the project root:
-   ```env
-   GROK_API_KEY=your_groq_api_key_here
-   ```
-
-4. **Run the application**
-   ```bash
-   streamlit run app.py
-   ```
-
-5. **Open your browser**
-   
-   Navigate to `http://localhost:8501`
-
-## 📖 Usage
-
-1. **Upload an Image** - Click "Browse files" or drag and drop a JPG/PNG image
-2. **Convert** - Click the "🚀 Convert to DOCX" button
-3. **Download** - Download your formatted Word document with embedded diagrams
-
-### Supported Formats
-
-- **Input**: JPG, JPEG, PNG
-- **Output**: DOCX (Microsoft Word)
-
-## 🏗️ Project Structure
-
-```
-Image-to-Word-Converter/
-├── app.py                  # Main Streamlit application
-├── backend.py              # Original backend (diagrams at end)
-├── backend_inline.py       # Enhanced backend (inline diagrams)
-├── diagrams.py             # Diagram extraction module
-├── text.py                 # Text processing utilities
-├── requirements.txt        # Python dependencies
-├── .env                    # Environment variables (create this)
-├── .gitignore             # Git ignore rules
-├── README.md              # This file
-└── ENV_SETUP.md           # Detailed setup instructions
+```bash
+pip install -r requirements.txt
 ```
 
-## 🛠️ How It Works
+Create a `.env` file:
 
-1. **Text Extraction** - Uses Groq's Llama 4 Maverick model for OCR
-2. **Diagram Detection** - AI identifies diagram regions with bounding boxes
-3. **Image Cropping** - OpenCV crops diagrams based on coordinates
-4. **Document Assembly** - python-docx creates formatted DOCX with:
-   - Extracted text with preserved formatting
-   - Diagrams inserted at correct positions
-   - Headings, bullets, and numbered lists
-
-## 📋 Requirements
-
-```
-streamlit>=1.28.0
-python-docx>=0.8.11
-groq>=0.4.0
-python-dotenv>=1.0.0
-opencv-python>=4.8.0
-Pillow>=10.0.0
+```env
+GROQ_API_KEY=your_groq_api_key_here
+# Optional override if Groq changes model access:
+GROQ_VISION_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 ```
 
-## 🎨 UI Features
+Backward compatibility is kept for the old `GROK_API_KEY` name, but `GROQ_API_KEY` is preferred.
+Use `.env.example` as the template. The real `.env` file is ignored by git and must not be committed.
 
-- **Yellow-Themed Design** - Modern, vibrant color scheme
-- **Gradient Backgrounds** - Smooth color transitions
-- **Hover Effects** - Interactive button and card animations
-- **Responsive Layout** - Works on different screen sizes
-- **Real-time Feedback** - Progress indicators and status messages
+Start the app:
 
-## 🔧 Configuration
+```bash
+streamlit run app.py
+```
 
-### API Settings
+## LaTeX/PDF Study Handout Workflow
 
-The application uses Groq's API with the following configuration:
-- Model: `meta-llama/llama-4-maverick-17b-128e-instruct`
-- Temperature: 0 (deterministic output)
-- Max tokens: 2048
+The existing DOCX conversion remains unchanged. The Streamlit interface now also has a separate `Convert to LaTeX/PDF` button for producing a clean chemistry study handout from the same uploaded notebook images.
 
-### Diagram Settings
+This workflow writes:
 
-- Default output directory: `cropped_diagrams/`
-- Image width in DOCX: 5.0 inches (inline), 5.5 inches (end section)
-- Position tolerance: ±5% vertical alignment
+```text
+output/latex/notes.tex
+output/latex/notes.pdf              Created only when a LaTeX engine is available
+output/latex/processing_report.md
+```
 
-## 🐛 Troubleshooting
+The final `notes.tex` and optional `notes.pdf` contain only student-facing study material. Ambiguous handwriting, assumptions, questionable reactions, and PDF compilation notes are written only to `processing_report.md`.
 
-**Images not visible in Word:**
-- Ensure you're using Microsoft Word (not Google Docs)
-- Check if images are set to "hidden" in Word settings
-- Look for orange `[Diagram X]` labels to locate diagrams
+PDF compilation is automatic if `tectonic`, `pdflatex`, `xelatex`, or `lualatex` is on `PATH`. Without one of those tools, the app still generates `notes.tex` and `processing_report.md`.
+Generated files under `output/` and optional local compiler binaries under `tools/` are ignored by git.
 
-**API Rate Limit:**
-- Wait a few moments between requests
-- Check your Groq API quota
+To generate the LaTeX outputs without the UI on Windows:
 
-**Poor OCR Quality:**
-- Use higher resolution images (300+ DPI recommended)
-- Ensure good lighting and contrast
-- Avoid blurry or distorted images
+```powershell
+.\scripts\build_latex.ps1
+```
 
-## 📝 License
+## Project Structure
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+```text
+app.py                  Streamlit Phase 2 interface
+backend_inline.py       Agentic OCR, quality checks, DOCX generation
+backend.py              Compatibility exports for older imports
+diagrams.py             Diagram detection and cropping utilities
+latex_workflow.py       Independent LaTeX/PDF study handout generator
+scripts/build_latex.ps1 Optional CLI helper for the LaTeX workflow
+text.py                 Backward-compatible OCR wrapper with no import-time client
+ENV_SETUP.md            Environment setup and deployment notes
+```
 
-## 🙏 Acknowledgments
+Phase 2 academic deliverables are kept outside this app folder in `../Phase-2/`.
 
-- [Groq](https://groq.com) - For the powerful AI API
-- [Streamlit](https://streamlit.io) - For the amazing web framework
-- [python-docx](https://python-docx.readthedocs.io) - For DOCX manipulation
-- [OpenCV](https://opencv.org) - For image processing
+## Agent Architecture
 
-## 🤝 Contributing
+The app is a realistic semi-autonomous agent rather than a fully autonomous system.
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+```text
+Input images
+  -> Observe: image dimensions, brightness, contrast, blur
+  -> Interpret: classify quality and risk
+  -> Decide: preprocessing, diagram strategy, review policy, risk level
+  -> Act: OCR, diagram detection/cropping, DOCX assembly
+  -> Learn: summarize pages processed, warnings, diagrams, and quality risks
+  -> Human review: user previews trace, text, diagrams, and downloads editable DOCX
+```
 
-## 📧 Contact
+The implemented agent covers the Phase 2 agentic checklist: perception, decision-making, action/tool orchestration, short-term memory/context, autonomy-level justification, human-in-the-loop checkpoints, ethical design, risk assessment, logging, and explainability.
 
-For questions or support, please open an issue on GitHub.
+## Professional Practice Notes
 
----
-
-**Made with ❤️ and ☕ | Powered by Groq AI & Streamlit**
+This project handles user-provided document images, so it must treat privacy and user control as first-class requirements. The current version stores temporary files locally, keeps API keys out of source control, flags uncertain pages, avoids long-term user-note memory, and avoids claiming full automation for handwritten OCR where mistakes can affect trust.
