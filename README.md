@@ -37,6 +37,27 @@ Start the app:
 streamlit run app.py
 ```
 
+## Free Cloud Hosting
+
+The fastest free deployment path for this app is Streamlit Community Cloud.
+
+Use:
+
+```text
+Repository: samabbas19/image-to-word-converter-mvp
+Branch: main
+Main file path: app.py
+```
+
+In the Streamlit deployment **Secrets** field, add:
+
+```toml
+GROQ_API_KEY = "your_groq_api_key_here"
+GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+```
+
+Do not upload `.env`. The committed `.env.example` is only a placeholder template.
+
 ## LaTeX/PDF Study Handout Workflow
 
 The existing DOCX conversion remains unchanged. The Streamlit interface now also has a separate `Convert to LaTeX/PDF` button for producing a clean chemistry study handout from the same uploaded notebook images.

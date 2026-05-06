@@ -26,6 +26,23 @@ streamlit run app.py
 
 Set `GROQ_API_KEY` in the hosting provider's environment-variable settings. Do not commit `.env`.
 
+### Streamlit Community Cloud
+
+Use these deployment settings:
+
+```text
+Repository: samabbas19/image-to-word-converter-mvp
+Branch: main
+Main file path: app.py
+```
+
+In the Streamlit deployment **Secrets** field, add:
+
+```toml
+GROQ_API_KEY = "your_api_key_here"
+GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+```
+
 Examples:
 
 ```bash
