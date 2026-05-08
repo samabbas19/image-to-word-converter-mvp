@@ -7,9 +7,6 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from backend_inline import assess_image_quality, build_trace_payload, process_images_to_docx
-from latex_workflow import convert_images_to_latex_pdf
-
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMP_DIR = BASE_DIR / "temp"
@@ -40,6 +37,20 @@ def load_streamlit_cloud_secrets() -> None:
 
 
 load_streamlit_cloud_secrets()
+
+
+@st.cache_resource(show_spinner=False)
+def load_backend_tools():
+    from backend_inline import assess_image_quality, build_trace_payload, process_images_to_docx
+
+    return assess_image_quality, build_trace_payload, process_images_to_docx
+
+
+@st.cache_resource(show_spinner=False)
+def load_latex_converter():
+    from latex_workflow import convert_images_to_latex_pdf
+
+    return convert_images_to_latex_pdf
 
 
 st.markdown(
@@ -426,8 +437,12 @@ with left_col:
                     image = Image.open(uploaded_file)
                     st.image(image, caption=uploaded_file.name, use_container_width=True)
                     if include_quality_preview:
-                        saved_path = save_uploads([uploaded_file], TEMP_DIR / "preview")[0]
-                        show_quality_report(assess_image_quality(saved_path))
+                        try:
+                            assess_image_quality, _, _ = load_backend_tools()
+                            saved_path = save_uploads([uploaded_file], TEMP_DIR / "preview")[0]
+                            show_quality_report(assess_image_quality(saved_path))
+                        except Exception as error:
+                            st.warning("Quality preview is unavailable in this runtime: {0}".format(error))
         else:
             st.markdown(
                 '<div class="empty-state"><strong>No pages uploaded yet.</strong><br>'
@@ -452,20 +467,24 @@ with right_col:
             output_filename = "agentic_conversion_{0}.docx".format(timestamp)
             output_path = str(TEMP_DIR / output_filename)
 
-            with st.spinner("Observing pages, extracting text, cropping diagrams, and assembling DOCX..."):
-                extracted_text, docx_path, results, memory = process_images_to_docx(
-                    image_paths,
-                    output_path,
-                    review_policy=review_policy,
-                )
+            try:
+                _, build_trace_payload, process_images_to_docx = load_backend_tools()
+                with st.spinner("Observing pages, extracting text, cropping diagrams, and assembling DOCX..."):
+                    extracted_text, docx_path, results, memory = process_images_to_docx(
+                        image_paths,
+                        output_path,
+                        review_policy=review_policy,
+                    )
 
-            st.session_state["docx_path"] = docx_path
-            st.session_state["output_filename"] = output_filename
-            st.session_state["results"] = results
-            st.session_state["memory"] = memory
-            st.session_state["extracted_text"] = extracted_text
-            st.session_state["trace_payload"] = build_trace_payload(results, memory)
-            st.success("Conversion completed. Review the trace before trusting the output.")
+                st.session_state["docx_path"] = docx_path
+                st.session_state["output_filename"] = output_filename
+                st.session_state["results"] = results
+                st.session_state["memory"] = memory
+                st.session_state["extracted_text"] = extracted_text
+                st.session_state["trace_payload"] = build_trace_payload(results, memory)
+                st.success("Conversion completed. Review the trace before trusting the output.")
+            except Exception as error:
+                st.error("DOCX conversion failed in this runtime: {0}".format(error))
 
         st.divider()
         latex_ready = bool(uploaded_files)
@@ -478,20 +497,24 @@ with right_col:
             latex_temp_dir = TEMP_DIR / "latex"
             latex_image_paths = save_uploads(uploaded_files, latex_temp_dir)
 
-            with st.spinner("Extracting text/layout from the reference image and generating LaTeX/PDF..."):
-                latex_result = convert_images_to_latex_pdf(latex_image_paths, output_dir=str(OUTPUT_DIR))
+            try:
+                convert_images_to_latex_pdf = load_latex_converter()
+                with st.spinner("Extracting text/layout from the reference image and generating LaTeX/PDF..."):
+                    latex_result = convert_images_to_latex_pdf(latex_image_paths, output_dir=str(OUTPUT_DIR))
 
-            st.session_state["latex_tex_path"] = latex_result.tex_path
-            st.session_state["latex_pdf_path"] = latex_result.pdf_path
-            st.session_state["latex_report_path"] = latex_result.report_path
-            st.session_state["latex_compile_message"] = latex_result.compile_message
-            st.session_state["latex_ocr_blocks_path"] = latex_result.ocr_blocks_path
-            st.session_state["latex_layout_blocks_path"] = latex_result.layout_blocks_path
+                st.session_state["latex_tex_path"] = latex_result.tex_path
+                st.session_state["latex_pdf_path"] = latex_result.pdf_path
+                st.session_state["latex_report_path"] = latex_result.report_path
+                st.session_state["latex_compile_message"] = latex_result.compile_message
+                st.session_state["latex_ocr_blocks_path"] = latex_result.ocr_blocks_path
+                st.session_state["latex_layout_blocks_path"] = latex_result.layout_blocks_path
 
-            if latex_result.pdf_path:
-                st.success("Image-based LaTeX/PDF output generated.")
-            else:
-                st.info("LaTeX and processing evidence generated. {0}".format(latex_result.compile_message))
+                if latex_result.pdf_path:
+                    st.success("Image-based LaTeX/PDF output generated.")
+                else:
+                    st.info("LaTeX and processing evidence generated. {0}".format(latex_result.compile_message))
+            except Exception as error:
+                st.error("LaTeX/PDF conversion failed in this runtime: {0}".format(error))
 
         if "latex_tex_path" in st.session_state:
             latex_cols = st.columns(5)
