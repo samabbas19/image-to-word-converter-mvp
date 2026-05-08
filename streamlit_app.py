@@ -1,9 +1,7 @@
-"""Streamlit Community Cloud entrypoint.
+"""Streamlit Community Cloud entrypoint."""
 
-The main app remains in app.py. This file exists so the hosted and local run
-command can be the standard:
+from pathlib import Path
 
-    streamlit run streamlit_app.py
-"""
 
-import app  # noqa: F401
+APP_FILE = Path(__file__).with_name("app.py")
+exec(compile(APP_FILE.read_text(encoding="utf-8"), str(APP_FILE), "exec"))
