@@ -5,8 +5,24 @@
 Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+py -3.12 -m pip install -r requirements.txt
 ```
+
+For the image-to-LaTeX/PDF pipeline, install at least one OCR path:
+
+```text
+Recommended local OCR: install Tesseract and make sure `tesseract` is on PATH.
+Fallback vision OCR: set GROQ_API_KEY.
+No OCR available: the system embeds the source image/crops and logs that text extraction was unavailable.
+```
+
+Install a LaTeX engine if you want `generated.tex` compiled directly:
+
+```text
+tectonic, pdflatex, xelatex, or lualatex
+```
+
+If no working LaTeX engine is available, the CLI still writes `generated.tex`, JSON evidence files, crops, and a direct image-PDF fallback.
 
 Create `.env` in the project root:
 
@@ -19,7 +35,7 @@ GROQ_VISION_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 Run the app:
 
 ```bash
-streamlit run app.py
+py -3.12 -m streamlit run streamlit_app.py
 ```
 
 ## Deployment
@@ -33,7 +49,7 @@ Use these deployment settings:
 ```text
 Repository: samabbas19/image-to-word-converter-mvp
 Branch: main
-Main file path: app.py
+Main file path: streamlit_app.py
 ```
 
 In the Streamlit deployment **Secrets** field, add:
@@ -42,6 +58,8 @@ In the Streamlit deployment **Secrets** field, add:
 GROQ_API_KEY = "your_api_key_here"
 GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 ```
+
+Set Python version to `3.12` in Advanced settings.
 
 Examples:
 

@@ -176,9 +176,9 @@ def _append_failure(decision: AgentDecision, message: str, risk_level: str = "Hi
 
 def extract_text_from_image(image_bytes: bytes, filename: str) -> str:
     image_url = image_bytes_to_data_url(image_bytes, filename)
-    completion = get_groq_client().chat.completions.create(
-        model=get_groq_vision_model(),
-        messages=[
+    request_payload = {
+        "model": get_groq_vision_model(),
+        "messages": [
             {
                 "role": "user",
                 "content": [
@@ -187,9 +187,12 @@ def extract_text_from_image(image_bytes: bytes, filename: str) -> str:
                 ],
             }
         ],
-        temperature=0,
-        max_completion_tokens=4096,
-    )
+        "temperature": 0,
+    }
+    try:
+        completion = get_groq_client().chat.completions.create(**request_payload, max_completion_tokens=4096)
+    except TypeError:
+        completion = get_groq_client().chat.completions.create(**request_payload, max_tokens=4096)
     return completion.choices[0].message.content or ""
 
 

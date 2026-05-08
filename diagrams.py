@@ -66,9 +66,9 @@ def extract_diagrams(image_path: str) -> str:
         image_bytes = image_file.read()
 
     image_url = image_bytes_to_data_url(image_bytes, os.path.basename(image_path))
-    response = get_groq_client().chat.completions.create(
-        model=get_groq_vision_model(),
-        messages=[
+    request_payload = {
+        "model": get_groq_vision_model(),
+        "messages": [
             {
                 "role": "user",
                 "content": [
@@ -77,9 +77,12 @@ def extract_diagrams(image_path: str) -> str:
                 ],
             }
         ],
-        temperature=0,
-        max_completion_tokens=1024,
-    )
+        "temperature": 0,
+    }
+    try:
+        response = get_groq_client().chat.completions.create(**request_payload, max_completion_tokens=1024)
+    except TypeError:
+        response = get_groq_client().chat.completions.create(**request_payload, max_tokens=1024)
     return response.choices[0].message.content or ""
 
 

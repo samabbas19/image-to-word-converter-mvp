@@ -2,6 +2,7 @@ import json
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 
 import streamlit as st
 from PIL import Image
@@ -10,11 +11,35 @@ from backend_inline import assess_image_quality, build_trace_payload, process_im
 from latex_workflow import convert_images_to_latex_pdf
 
 
+BASE_DIR = Path(__file__).resolve().parent
+TEMP_DIR = BASE_DIR / "temp"
+OUTPUT_DIR = BASE_DIR / "output"
+
+
 st.set_page_config(
     page_title="Agentic Image-to-Word Converter",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+
+def load_streamlit_cloud_secrets() -> None:
+    """
+    Streamlit Community Cloud stores secrets in st.secrets. The backend modules
+    read environment variables, so mirror configured secrets into os.environ.
+    """
+    for key in ("GROQ_API_KEY", "GROK_API_KEY", "GROQ_VISION_MODEL"):
+        if os.getenv(key):
+            continue
+        try:
+            value = st.secrets.get(key)
+        except Exception:
+            value = None
+        if value:
+            os.environ[key] = str(value)
+
+
+load_streamlit_cloud_secrets()
 
 
 st.markdown(
@@ -282,21 +307,24 @@ st.markdown(
 
 
 def safe_filename(filename):
-    name, ext = os.path.splitext(filename)
+    uploaded_path = Path(filename)
+    name = uploaded_path.stem
+    ext = uploaded_path.suffix
     clean_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("_") or "page"
     clean_ext = ext.lower() if ext else ".jpeg"
     return clean_name[:60] + clean_ext
 
 
 def save_uploads(uploaded_files, temp_dir):
-    os.makedirs(temp_dir, exist_ok=True)
+    temp_path = Path(temp_dir)
+    temp_path.mkdir(parents=True, exist_ok=True)
     saved_paths = []
     for index, uploaded_file in enumerate(uploaded_files, start=1):
         filename = "{0:02d}_{1}".format(index, safe_filename(uploaded_file.name))
-        path = os.path.join(temp_dir, filename)
+        path = temp_path / filename
         with open(path, "wb") as output_file:
             output_file.write(uploaded_file.getvalue())
-        saved_paths.append(path)
+        saved_paths.append(str(path))
     return saved_paths
 
 
@@ -358,9 +386,9 @@ with st.sidebar:
     st.markdown("### Runtime")
     api_key_ready = bool(os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY"))
     if api_key_ready:
-        st.success("Groq API key detected.")
+        st.success("Groq API key detected for vision OCR.")
     else:
-        st.error("Set GROQ_API_KEY in .env before conversion.")
+        st.warning("DOCX vision OCR needs GROQ_API_KEY. LaTeX/PDF can also use Tesseract or image fallback.")
 
 
 st.markdown('<div class="eyebrow">Phase 2 agentic upgrade</div>', unsafe_allow_html=True)
@@ -382,7 +410,7 @@ uploaded_files = st.file_uploader(
     "Add document pages",
     type=["jpg", "jpeg", "png"],
     accept_multiple_files=True,
-    help="Upload pages in order. For this project, use 1.jpeg, 2.jpeg, and 3.jpeg.",
+    help="Upload one or more document page images in reading order.",
 )
 
 left_col, right_col = st.columns([1.08, 0.92], gap="large")
@@ -398,14 +426,13 @@ with left_col:
                     image = Image.open(uploaded_file)
                     st.image(image, caption=uploaded_file.name, use_container_width=True)
                     if include_quality_preview:
-                        preview_dir = os.path.join("temp", "preview")
-                        saved_path = save_uploads([uploaded_file], preview_dir)[0]
+                        saved_path = save_uploads([uploaded_file], TEMP_DIR / "preview")[0]
                         show_quality_report(assess_image_quality(saved_path))
         else:
             st.markdown(
                 '<div class="empty-state"><strong>No pages uploaded yet.</strong><br>'
-                "Start with the three chemistry note images: 1.jpeg, 2.jpeg, and 3.jpeg. "
-                "The agent will scan them as one document and place diagrams back into the DOCX.</div>",
+                "Upload notebook photos or screenshots. The agent will scan them as one document "
+                "and place detected diagrams back into the DOCX.</div>",
                 unsafe_allow_html=True,
             )
 
@@ -420,11 +447,10 @@ with right_col:
         )
 
         if st.button("Run agentic conversion", type="primary", disabled=not ready):
-            temp_dir = "temp"
-            image_paths = save_uploads(uploaded_files, temp_dir)
+            image_paths = save_uploads(uploaded_files, TEMP_DIR)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_filename = "agentic_conversion_{0}.docx".format(timestamp)
-            output_path = os.path.join(temp_dir, output_filename)
+            output_path = str(TEMP_DIR / output_filename)
 
             with st.spinner("Observing pages, extracting text, cropping diagrams, and assembling DOCX..."):
                 extracted_text, docx_path, results, memory = process_images_to_docx(
@@ -445,46 +471,48 @@ with right_col:
         latex_ready = bool(uploaded_files)
         st.markdown(
             '<p class="quiet-note">The LaTeX/PDF path is separate from the DOCX agentic conversion. '
-            "It writes student-facing notes and a separate processing report under output/latex.</p>",
+            "It reconstructs LaTeX from the uploaded reference image and writes OCR/layout evidence under output/.</p>",
             unsafe_allow_html=True,
         )
         if st.button("Convert to LaTeX/PDF", disabled=not latex_ready):
-            latex_temp_dir = os.path.join("temp", "latex")
+            latex_temp_dir = TEMP_DIR / "latex"
             latex_image_paths = save_uploads(uploaded_files, latex_temp_dir)
 
-            with st.spinner("Reconstructing chemistry notes into LaTeX and compiling PDF if supported..."):
-                latex_result = convert_images_to_latex_pdf(latex_image_paths)
+            with st.spinner("Extracting text/layout from the reference image and generating LaTeX/PDF..."):
+                latex_result = convert_images_to_latex_pdf(latex_image_paths, output_dir=str(OUTPUT_DIR))
 
             st.session_state["latex_tex_path"] = latex_result.tex_path
             st.session_state["latex_pdf_path"] = latex_result.pdf_path
             st.session_state["latex_report_path"] = latex_result.report_path
             st.session_state["latex_compile_message"] = latex_result.compile_message
+            st.session_state["latex_ocr_blocks_path"] = latex_result.ocr_blocks_path
+            st.session_state["latex_layout_blocks_path"] = latex_result.layout_blocks_path
 
             if latex_result.pdf_path:
-                st.success("LaTeX/PDF handout generated.")
+                st.success("Image-based LaTeX/PDF output generated.")
             else:
-                st.info("LaTeX handout and processing report generated. {0}".format(latex_result.compile_message))
+                st.info("LaTeX and processing evidence generated. {0}".format(latex_result.compile_message))
 
         if "latex_tex_path" in st.session_state:
-            latex_cols = st.columns(3)
+            latex_cols = st.columns(5)
             with open(st.session_state["latex_tex_path"], "rb") as tex_file:
                 latex_cols[0].download_button(
-                    "Download notes.tex",
+                    "Download generated.tex",
                     data=tex_file.read(),
-                    file_name="notes.tex",
+                    file_name="generated.tex",
                     mime="text/x-tex",
                 )
 
             if st.session_state.get("latex_pdf_path"):
                 with open(st.session_state["latex_pdf_path"], "rb") as pdf_file:
                     latex_cols[1].download_button(
-                        "Download notes.pdf",
+                        "Download generated.pdf",
                         data=pdf_file.read(),
-                        file_name="notes.pdf",
+                        file_name="generated.pdf",
                         mime="application/pdf",
                     )
             else:
-                latex_cols[1].caption("notes.pdf requires a LaTeX engine on PATH.")
+                latex_cols[1].caption("PDF requires a LaTeX engine or image fallback.")
 
             with open(st.session_state["latex_report_path"], "rb") as report_file:
                 latex_cols[2].download_button(
@@ -492,6 +520,20 @@ with right_col:
                     data=report_file.read(),
                     file_name="processing_report.md",
                     mime="text/markdown",
+                )
+            with open(st.session_state["latex_ocr_blocks_path"], "rb") as ocr_file:
+                latex_cols[3].download_button(
+                    "Download OCR JSON",
+                    data=ocr_file.read(),
+                    file_name="ocr_blocks.json",
+                    mime="application/json",
+                )
+            with open(st.session_state["latex_layout_blocks_path"], "rb") as layout_file:
+                latex_cols[4].download_button(
+                    "Download layout JSON",
+                    data=layout_file.read(),
+                    file_name="layout_blocks.json",
+                    mime="application/json",
                 )
 
         if "docx_path" in st.session_state:
@@ -530,7 +572,7 @@ with right_col:
                 st.text_area("OCR text", st.session_state["extracted_text"], height=280)
 
         elif not api_key_ready:
-            st.warning("The interface is ready, but conversion needs a Groq API key.")
+            st.warning("DOCX conversion needs a Groq API key. LaTeX/PDF can still run with Tesseract or image fallback.")
         elif uploaded_files:
             st.info("Pages are ready. Start conversion when the order looks right.")
         else:

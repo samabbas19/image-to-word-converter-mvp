@@ -4,7 +4,7 @@ Phase 1 was a Streamlit MVP that converted one document image into a Word file u
 
 ## What Changed in Phase 2
 
-- Batch conversion: upload `1.jpeg`, `2.jpeg`, and `3.jpeg` together and receive one combined DOCX.
+- Batch conversion: upload one or more page images together and receive one combined DOCX.
 - Complete agent workflow: observe image quality, interpret risk, decide preprocessing/review actions, act through OCR and diagram extraction, then summarize run memory.
 - Explicit run memory: the app records pages processed, review flags, common quality risks, tool warnings, diagrams, safety controls, and the run risk level.
 - Trace export: the UI can download a JSON audit trace with per-page observations, decisions, actions, warnings, and diagram coordinates.
@@ -17,7 +17,7 @@ Phase 1 was a Streamlit MVP that converted one document image into a Word file u
 ## Run Locally
 
 ```bash
-pip install -r requirements.txt
+py -3.12 -m pip install -r requirements.txt
 ```
 
 Create a `.env` file:
@@ -34,7 +34,7 @@ Use `.env.example` as the template. The real `.env` file is ignored by git and m
 Start the app:
 
 ```bash
-streamlit run app.py
+py -3.12 -m streamlit run streamlit_app.py
 ```
 
 ## Free Cloud Hosting
@@ -46,7 +46,7 @@ Use:
 ```text
 Repository: samabbas19/image-to-word-converter-mvp
 Branch: main
-Main file path: app.py
+Main file path: streamlit_app.py
 ```
 
 In the Streamlit deployment **Secrets** field, add:
@@ -56,42 +56,71 @@ GROQ_API_KEY = "your_groq_api_key_here"
 GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 ```
 
+Set the Streamlit Cloud Python version to `3.12` in Advanced settings.
+
 Do not upload `.env`. The committed `.env.example` is only a placeholder template.
+
+`app.py` contains the real Streamlit UI. `streamlit_app.py` is a thin deployment entrypoint so local and cloud runs use the same command.
 
 ## LaTeX/PDF Study Handout Workflow
 
-The existing DOCX conversion remains unchanged. The Streamlit interface now also has a separate `Convert to LaTeX/PDF` button for producing a clean chemistry study handout from the same uploaded notebook images.
+The existing DOCX conversion remains unchanged. The Streamlit interface also has a separate `Convert to LaTeX/PDF` button for producing an image-based PDF reconstruction from the uploaded reference image. This path no longer emits fixed sample chemistry notes; it analyzes the actual input image.
 
 This workflow writes:
 
 ```text
-output/latex/notes.tex
-output/latex/notes.pdf              Created only when a LaTeX engine is available
-output/latex/processing_report.md
+output/generated.tex
+output/generated.pdf                Created by LaTeX when available, otherwise direct image PDF fallback
+output/processing_report.md
+output/ocr_blocks.json
+output/layout_blocks.json
+output/crops/
 ```
 
-The final `notes.tex` and optional `notes.pdf` contain only student-facing study material. Ambiguous handwriting, assumptions, questionable reactions, and PDF compilation notes are written only to `processing_report.md`.
+The pipeline is:
 
-PDF compilation is automatic if `tectonic`, `pdflatex`, `xelatex`, or `lualatex` is on `PATH`. Without one of those tools, the app still generates `notes.tex` and `processing_report.md`.
+```text
+Input image
+  -> preprocess image
+  -> OCR text extraction
+  -> layout/region detection
+  -> classify regions as text/table/diagram/image
+  -> generate LaTeX dynamically
+  -> include cropped diagrams/tables when reconstruction is unreliable
+  -> compile PDF or use direct image-PDF fallback when no LaTeX engine is installed
+```
+
+Tesseract is preferred when installed because it provides text coordinates and confidence values. If Tesseract is not available, the workflow uses the existing Groq vision integration when `GROQ_API_KEY` is configured. If neither OCR path is available or confidence is low, the system embeds the original image/crop instead of inventing text.
+
+PDF compilation is automatic if `tectonic`, `pdflatex`, `xelatex`, or `lualatex` is on `PATH`. Without one of those tools, the app still generates `generated.tex`, JSON evidence files, crops, and a direct image PDF fallback.
 Generated files under `output/` and optional local compiler binaries under `tools/` are ignored by git.
 
-To generate the LaTeX outputs without the UI on Windows:
+To generate the LaTeX outputs without the UI:
 
 ```powershell
-.\scripts\build_latex.ps1
+python generate_from_image.py --input reference.png --output output/generated.pdf
+```
+
+On Windows, the helper script accepts one or more images:
+
+```powershell
+.\scripts\build_latex.ps1 reference.png
 ```
 
 ## Project Structure
 
 ```text
+streamlit_app.py       Streamlit Community Cloud entrypoint
 app.py                  Streamlit Phase 2 interface
 backend_inline.py       Agentic OCR, quality checks, DOCX generation
 backend.py              Compatibility exports for older imports
 diagrams.py             Diagram detection and cropping utilities
-latex_workflow.py       Independent LaTeX/PDF study handout generator
+generate_from_image.py  Image-based OCR/layout to LaTeX/PDF pipeline
+latex_workflow.py       Compatibility wrapper for the Streamlit LaTeX/PDF button
 scripts/build_latex.ps1 Optional CLI helper for the LaTeX workflow
 text.py                 Backward-compatible OCR wrapper with no import-time client
 ENV_SETUP.md            Environment setup and deployment notes
+DEPLOYMENT.md           Streamlit Community Cloud deployment checklist
 ```
 
 Phase 2 academic deliverables are kept outside this app folder in `../Phase-2/`.
