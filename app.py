@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from io import BytesIO
 from datetime import datetime
 from pathlib import Path
 
@@ -339,6 +340,16 @@ def save_uploads(uploaded_files, temp_dir):
     return saved_paths
 
 
+def render_uploaded_preview(uploaded_file):
+    try:
+        image_bytes = uploaded_file.getvalue()
+        with Image.open(BytesIO(image_bytes)) as image:
+            image.thumbnail((1100, 1100))
+            st.image(image.copy(), caption=uploaded_file.name, use_container_width=True)
+    except Exception as error:
+        st.warning("Image preview is unavailable for this file: {0}".format(error))
+
+
 def show_quality_report(report):
     st.markdown(
         '<span class="status-pill">{0}</span><span class="status-pill">{1} x {2}px</span>'.format(
@@ -374,7 +385,8 @@ def review_policy_value(label):
 with st.sidebar:
     st.markdown("### Document Agent")
     st.caption("A semi-autonomous workflow for handwritten notes.")
-    include_quality_preview = st.toggle("Preview page quality", value=True)
+    include_quality_preview = st.toggle("Preview page quality", value=False)
+    st.caption("Keep this off on hosted demos unless you need the quality metrics before conversion.")
     show_agent_trace = st.toggle("Show conversion trace", value=True)
     review_policy_label = st.selectbox(
         "Human review gate",
@@ -434,8 +446,7 @@ with left_col:
             preview_tabs = st.tabs(["Page {0}".format(index) for index in range(1, len(uploaded_files) + 1)])
             for tab, uploaded_file in zip(preview_tabs, uploaded_files):
                 with tab:
-                    image = Image.open(uploaded_file)
-                    st.image(image, caption=uploaded_file.name, use_container_width=True)
+                    render_uploaded_preview(uploaded_file)
                     if include_quality_preview:
                         try:
                             assess_image_quality, _, _ = load_backend_tools()
