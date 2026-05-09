@@ -540,7 +540,7 @@ with right_col:
                 st.error("LaTeX/PDF conversion failed in this runtime: {0}".format(error))
 
         if "latex_tex_path" in st.session_state:
-            latex_cols = st.columns(5)
+            latex_cols = st.columns(2)
             with open(st.session_state["latex_tex_path"], "rb") as tex_file:
                 latex_cols[0].download_button(
                     "Download generated.tex",
@@ -560,22 +560,23 @@ with right_col:
             else:
                 latex_cols[1].caption("PDF was not generated because a required pipeline step failed.")
 
+            evidence_cols = st.columns(2)
             with open(st.session_state["latex_report_path"], "rb") as report_file:
-                latex_cols[2].download_button(
+                evidence_cols[0].download_button(
                     "Download processing report",
                     data=report_file.read(),
                     file_name="processing_report.md",
                     mime="text/markdown",
                 )
             with open(st.session_state["latex_ocr_blocks_path"], "rb") as ocr_file:
-                latex_cols[3].download_button(
+                evidence_cols[1].download_button(
                     "Download OCR JSON",
                     data=ocr_file.read(),
                     file_name="ocr_blocks.json",
                     mime="application/json",
                 )
             with open(st.session_state["latex_layout_blocks_path"], "rb") as layout_file:
-                latex_cols[4].download_button(
+                st.download_button(
                     "Download layout JSON",
                     data=layout_file.read(),
                     file_name="layout_blocks.json",
