@@ -1,4 +1,5 @@
 import json
+import importlib
 import os
 import re
 from io import BytesIO
@@ -40,16 +41,24 @@ def load_streamlit_cloud_secrets() -> None:
 load_streamlit_cloud_secrets()
 
 
-@st.cache_resource(show_spinner=False)
 def load_backend_tools():
-    from backend_inline import assess_image_quality, build_trace_payload, process_images_to_docx
+    import backend_inline
+
+    backend_inline = importlib.reload(backend_inline)
+    assess_image_quality = backend_inline.assess_image_quality
+    build_trace_payload = backend_inline.build_trace_payload
+    process_images_to_docx = backend_inline.process_images_to_docx
 
     return assess_image_quality, build_trace_payload, process_images_to_docx
 
 
-@st.cache_resource(show_spinner=False)
 def load_latex_converter():
-    from latex_workflow import convert_images_to_latex_pdf
+    import generate_from_image
+    import latex_workflow
+
+    importlib.reload(generate_from_image)
+    latex_workflow = importlib.reload(latex_workflow)
+    convert_images_to_latex_pdf = latex_workflow.convert_images_to_latex_pdf
 
     return convert_images_to_latex_pdf
 
