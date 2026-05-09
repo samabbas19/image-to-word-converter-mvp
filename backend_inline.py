@@ -10,8 +10,7 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Inches, Pt
 from dotenv import load_dotenv
 from groq import Groq
 from PIL import Image
@@ -49,7 +48,7 @@ SAFETY_CONTROLS = [
     "No OCR or diagram API call runs during module import.",
     "Uploaded files are limited to common image formats by the Streamlit UI.",
     "Low-quality pages are flagged for human review.",
-    "Agent decisions are written to the UI and generated DOCX.",
+    "Agent decisions are written to the UI trace, while the DOCX contains only transformed source content.",
     "Run memory is temporary and does not retain user notes by default.",
 ]
 
@@ -325,53 +324,6 @@ def _set_document_defaults(doc: Document) -> None:
         section.right_margin = Inches(0.65)
 
 
-def _add_quality_summary(doc: Document, result: PageConversionResult) -> None:
-    quality = result.quality
-    decision = result.decision
-
-    table = doc.add_table(rows=1, cols=2)
-    table.style = "Light Shading Accent 1"
-    table.cell(0, 0).text = "Agent observation"
-    table.cell(0, 1).text = (
-        "{0} x {1}px | brightness {2} | contrast {3} | blur {4} | {5}".format(
-            quality.width,
-            quality.height,
-            quality.brightness,
-            quality.contrast,
-            quality.blur_score,
-            quality.status,
-        )
-    )
-
-    row = table.add_row().cells
-    row[0].text = "Agent decision"
-    row[1].text = "; ".join(decision.rationale) or "Proceed with standard OCR."
-
-    row = table.add_row().cells
-    row[0].text = "Risk and review"
-    row[1].text = "Risk: {0} | Human review required: {1}".format(
-        decision.risk_level,
-        "Yes" if decision.human_review_required else "No",
-    )
-
-    if decision.external_tools:
-        row = table.add_row().cells
-        row[0].text = "Tools used"
-        row[1].text = ", ".join(decision.external_tools)
-
-    if quality.issues:
-        row = table.add_row().cells
-        row[0].text = "Review notes"
-        row[1].text = "; ".join(quality.issues)
-
-    if result.warnings:
-        row = table.add_row().cells
-        row[0].text = "Tool warnings"
-        row[1].text = "; ".join(result.warnings)
-
-    doc.add_paragraph()
-
-
 def _add_text_with_inline_diagrams(
     doc: Document,
     text: str,
@@ -390,10 +342,6 @@ def _add_text_with_inline_diagrams(
             if diagram["y_min"] <= line_y_position + 4:
                 diagram_path = str(diagram["path"])
                 if os.path.exists(diagram_path):
-                    paragraph = doc.add_paragraph()
-                    run = paragraph.add_run("Diagram {0}".format(diagram_index + 1))
-                    run.bold = True
-                    run.font.color.rgb = RGBColor(196, 91, 36)
                     doc.add_picture(diagram_path, width=Inches(5.6))
                     doc.add_paragraph()
                 diagram_index += 1
@@ -430,53 +378,9 @@ def _add_text_with_inline_diagrams(
         diagram = diagrams[diagram_index]
         diagram_path = str(diagram["path"])
         if os.path.exists(diagram_path):
-            paragraph = doc.add_paragraph()
-            run = paragraph.add_run("Additional Diagram {0}".format(diagram_index + 1))
-            run.bold = True
-            run.font.color.rgb = RGBColor(196, 91, 36)
             doc.add_picture(diagram_path, width=Inches(5.6))
             doc.add_paragraph()
         diagram_index += 1
-
-
-def _add_run_summary(doc: Document, memory: Dict[str, object]) -> None:
-    doc.add_heading("Agent Run Summary", level=1)
-
-    table = doc.add_table(rows=1, cols=2)
-    table.style = "Light Shading Accent 1"
-    table.cell(0, 0).text = "Agent type"
-    table.cell(0, 1).text = "Goal-based semi-autonomous document conversion agent"
-
-    rows = [
-        ("Workflow", "Observe -> Interpret -> Decide -> Act -> Learn -> Human review"),
-        ("Pages processed", str(memory.get("pages_processed", 0))),
-        ("Pages requiring review", str(memory.get("pages_requiring_review", 0))),
-        ("Diagrams detected", str(memory.get("diagrams_detected", 0))),
-        ("Run risk level", str(memory.get("run_risk_level", "Low"))),
-        ("Memory policy", str(memory.get("memory_policy", ""))),
-        ("Human checkpoint", str(memory.get("human_checkpoint", ""))),
-        ("External tools", ", ".join(memory.get("external_tools_used", []))),
-    ]
-
-    common_issues = memory.get("common_quality_issues", [])
-    if common_issues:
-        rows.append(("Common quality issues", "; ".join(common_issues)))
-
-    for label, value in rows:
-        row = table.add_row().cells
-        row[0].text = label
-        row[1].text = value
-
-    doc.add_paragraph()
-    doc.add_heading("Safety Controls", level=2)
-    for control in memory.get("safety_controls", SAFETY_CONTROLS):
-        doc.add_paragraph(str(control), style="List Bullet")
-
-    doc.add_heading("Risk Assessment", level=2)
-    for risk in memory.get("risk_register", RISK_REGISTER):
-        paragraph = doc.add_paragraph(style="List Bullet")
-        paragraph.add_run(str(risk.get("risk", ""))).bold = True
-        paragraph.add_run(": {0} Mitigation: {1}".format(risk.get("impact", ""), risk.get("mitigation", "")))
 
 
 def create_agentic_docx(
@@ -487,20 +391,10 @@ def create_agentic_docx(
     doc = Document()
     _set_document_defaults(doc)
 
-    title = doc.add_heading("Agentic Image-to-Word Conversion", level=0)
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    subtitle = doc.add_paragraph("Generated with OCR, diagram extraction, image-quality checks, and human-review flags.")
-    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    if memory:
-        _add_run_summary(doc, memory)
-
     for page_index, result in enumerate(results, start=1):
         if page_index > 1:
             doc.add_page_break()
 
-        doc.add_heading("Page {0}: {1}".format(page_index, result.quality.filename), level=1)
-        _add_quality_summary(doc, result)
         _add_text_with_inline_diagrams(doc, result.extracted_text, result.diagram_data)
 
     doc.save(output_path)

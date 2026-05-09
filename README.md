@@ -11,7 +11,7 @@ Phase 1 was a Streamlit MVP that converted one document image into a Word file u
 - Safer backend: no API calls during module import, lazy Groq client creation, and clear missing-key errors.
 - Better diagram handling: robust coordinate parsing, per-page crop names, and inline placement in the generated DOCX.
 - Human-in-the-loop: pages with quality risks are flagged for review instead of silently trusted, and the sidebar can require review for all pages.
-- Safety and legal awareness: the UI and generated DOCX include privacy, IPR, risk, and safety controls required by the Phase 2 brief.
+- Safety and legal awareness: the UI and trace export include privacy, IPR, risk, and safety controls required by the Phase 2 brief while the generated DOCX stays focused on transformed source content.
 - Cleaner frontend: fixed broken character encoding, improved layout, and exposed agent trace information.
 
 ## Run Locally

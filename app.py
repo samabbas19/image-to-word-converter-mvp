@@ -468,15 +468,15 @@ with right_col:
         ready = bool(uploaded_files) and api_key_ready
         st.markdown("#### Microsoft Word (.docx)")
         st.markdown(
-            '<p class="quiet-note">The generated Word file includes a small agent observation table per page, '
-            "so your Phase 2 demo can show how the system made its decisions.</p>",
+            '<p class="quiet-note">The Word file contains the transformed source content only: OCR text, '
+            "formatting, and detected diagram crops. Agent trace stays in the app and JSON export.</p>",
             unsafe_allow_html=True,
         )
 
         if st.button("Convert to MS Word (.docx)", type="primary", disabled=not ready):
             image_paths = save_uploads(uploaded_files, TEMP_DIR)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_filename = "agentic_conversion_{0}.docx".format(timestamp)
+            output_filename = "converted_document_{0}.docx".format(timestamp)
             output_path = str(TEMP_DIR / output_filename)
 
             try:
@@ -494,7 +494,7 @@ with right_col:
                 st.session_state["memory"] = memory
                 st.session_state["extracted_text"] = extracted_text
                 st.session_state["trace_payload"] = build_trace_payload(results, memory)
-                st.success("Conversion completed. Review the trace before trusting the output.")
+                st.success("Word conversion completed.")
             except Exception as error:
                 st.error("DOCX conversion failed in this runtime: {0}".format(error))
 
