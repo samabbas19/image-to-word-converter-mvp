@@ -49,6 +49,10 @@ class ImagePdfGenerationResult:
     warnings: List[str] = field(default_factory=list)
 
 
+class ImageToLatexPipelineError(RuntimeError):
+    """Raised when a required image-to-LaTeX pipeline step cannot be completed."""
+
+
 def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -1252,14 +1256,14 @@ Generated at: {generated_at}
 
 ## Pipeline
 
-Input image -> preprocess image -> OCR text extraction -> layout/region detection -> classify regions -> generate LaTeX dynamically -> crop diagrams/tables/images when needed -> compile PDF or use direct image PDF fallback when no LaTeX engine is available.
+Input image -> preprocess image -> OCR text extraction -> layout/region detection -> classify regions -> generate LaTeX dynamically -> crop diagrams/tables/images when needed -> compile PDF with a LaTeX engine.
 
 ## Selected OCR/Layout Method
 
 - OCR engine: {ocr_engine}
-- Tesseract is preferred when installed because it provides real OCR coordinates and confidence scores.
-- Groq vision is used only when local OCR is unavailable and a `GROQ_API_KEY` is configured.
-- If neither OCR path is available or confidence is low, the source image is embedded as a crop instead of inventing text.
+- Tesseract is available for local OCR when selected.
+- The hosted Streamlit workflow uses Groq vision when a `GROQ_API_KEY` is configured because it handles handwriting and layout better.
+- In strict mode, missing/failed OCR, low OCR confidence, or failed PDF compilation stops the pipeline instead of producing an image-only PDF.
 
 ## Output Files
 
@@ -1296,6 +1300,8 @@ def generate_from_images(
     preferred_ocr_engine: str = "auto",
     compile_pdf: bool = True,
     allow_pdf_fallback: bool = True,
+    require_text_extraction: bool = False,
+    require_pdf: bool = False,
 ) -> ImagePdfGenerationResult:
     if not image_paths:
         raise ValueError("At least one input image is required.")
@@ -1333,6 +1339,17 @@ def generate_from_images(
         )
         engines_used.append(engine)
         all_ocr_blocks.extend(ocr_blocks)
+        average_confidence = _average_confidence(ocr_blocks)
+        if require_text_extraction and not ocr_blocks:
+            raise ImageToLatexPipelineError(
+                "OCR text extraction produced no readable text on page {0}. "
+                "Stopping instead of creating a fake or image-only PDF.".format(page_number)
+            )
+        if require_text_extraction and average_confidence < LOW_CONFIDENCE_THRESHOLD:
+            raise ImageToLatexPipelineError(
+                "OCR confidence on page {0} was too low ({1}%). "
+                "Stopping instead of embedding the whole page as a PDF.".format(page_number, average_confidence)
+            )
         layout_blocks = build_layout_blocks_for_page(
             image_path,
             page_number,
@@ -1383,6 +1400,11 @@ def generate_from_images(
                     )
                 )
                 warnings.append("PDF was produced by direct image-to-PDF fallback because LaTeX compilation was unavailable or failed.")
+
+    if require_pdf and not pdf_path:
+        raise ImageToLatexPipelineError(
+            "LaTeX was generated but PDF compilation failed. {0}".format(compile_message)
+        )
 
     with open(report_path, "w", encoding="utf-8") as report_file:
         report_file.write(
@@ -1442,6 +1464,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Do not create a direct image PDF when LaTeX compilation is unavailable.",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Stop if OCR text extraction or PDF compilation fails instead of using image-only fallbacks.",
+    )
     return parser.parse_args()
 
 
@@ -1453,6 +1480,8 @@ def main() -> int:
         preferred_ocr_engine=args.ocr_engine,
         compile_pdf=not args.no_compile,
         allow_pdf_fallback=not args.no_pdf_fallback,
+        require_text_extraction=args.strict,
+        require_pdf=args.strict and not args.no_compile,
     )
     print("generated.tex={0}".format(result.tex_path))
     print("generated.pdf={0}".format(result.pdf_path))

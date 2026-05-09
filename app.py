@@ -345,7 +345,7 @@ def render_uploaded_preview(uploaded_file):
         image_bytes = uploaded_file.getvalue()
         with Image.open(BytesIO(image_bytes)) as image:
             image.thumbnail((1100, 1100))
-            st.image(image.copy(), caption=uploaded_file.name, use_container_width=True)
+            st.image(image.copy(), caption=uploaded_file.name, width="stretch")
     except Exception as error:
         st.warning("Image preview is unavailable for this file: {0}".format(error))
 
@@ -466,13 +466,14 @@ with right_col:
     with st.container(border=True):
         st.subheader("Conversion bench")
         ready = bool(uploaded_files) and api_key_ready
+        st.markdown("#### Microsoft Word (.docx)")
         st.markdown(
             '<p class="quiet-note">The generated Word file includes a small agent observation table per page, '
             "so your Phase 2 demo can show how the system made its decisions.</p>",
             unsafe_allow_html=True,
         )
 
-        if st.button("Run agentic conversion", type="primary", disabled=not ready):
+        if st.button("Convert to MS Word (.docx)", type="primary", disabled=not ready):
             image_paths = save_uploads(uploaded_files, TEMP_DIR)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_filename = "agentic_conversion_{0}.docx".format(timestamp)
@@ -498,13 +499,24 @@ with right_col:
                 st.error("DOCX conversion failed in this runtime: {0}".format(error))
 
         st.divider()
-        latex_ready = bool(uploaded_files)
+        latex_ready = bool(uploaded_files) and api_key_ready
+        st.markdown("#### LaTeX PDF (.pdf)")
         st.markdown(
             '<p class="quiet-note">The LaTeX/PDF path is separate from the DOCX agentic conversion. '
-            "It reconstructs LaTeX from the uploaded reference image and writes OCR/layout evidence under output/.</p>",
+            "It must complete Groq OCR/layout extraction and LaTeX compilation. If a required step fails, "
+            "the app stops and shows the error instead of creating an image-only PDF.</p>",
             unsafe_allow_html=True,
         )
         if st.button("Convert to LaTeX/PDF", disabled=not latex_ready):
+            for key in (
+                "latex_tex_path",
+                "latex_pdf_path",
+                "latex_report_path",
+                "latex_compile_message",
+                "latex_ocr_blocks_path",
+                "latex_layout_blocks_path",
+            ):
+                st.session_state.pop(key, None)
             latex_temp_dir = TEMP_DIR / "latex"
             latex_image_paths = save_uploads(uploaded_files, latex_temp_dir)
 
@@ -521,7 +533,7 @@ with right_col:
                 st.session_state["latex_layout_blocks_path"] = latex_result.layout_blocks_path
 
                 if latex_result.pdf_path:
-                    st.success("Image-based LaTeX/PDF output generated.")
+                    st.success("OCR-based LaTeX/PDF output generated.")
                 else:
                     st.info("LaTeX and processing evidence generated. {0}".format(latex_result.compile_message))
             except Exception as error:
@@ -546,7 +558,7 @@ with right_col:
                         mime="application/pdf",
                     )
             else:
-                latex_cols[1].caption("PDF requires a LaTeX engine or image fallback.")
+                latex_cols[1].caption("PDF was not generated because a required pipeline step failed.")
 
             with open(st.session_state["latex_report_path"], "rb") as report_file:
                 latex_cols[2].download_button(
@@ -606,7 +618,7 @@ with right_col:
                 st.text_area("OCR text", st.session_state["extracted_text"], height=280)
 
         elif not api_key_ready:
-            st.warning("DOCX conversion needs a Groq API key. LaTeX/PDF can still run with Tesseract or image fallback.")
+            st.warning("Conversion needs a Groq API key. Set GROQ_API_KEY in Streamlit secrets or local .env.")
         elif uploaded_files:
             st.info("Pages are ready. Start conversion when the order looks right.")
         else:

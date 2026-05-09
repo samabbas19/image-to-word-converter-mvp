@@ -70,7 +70,7 @@ This workflow writes:
 
 ```text
 output/generated.tex
-output/generated.pdf                Created by LaTeX when available, otherwise direct image PDF fallback
+output/generated.pdf                Created only after LaTeX compilation succeeds
 output/processing_report.md
 output/ocr_blocks.json
 output/layout_blocks.json
@@ -87,18 +87,24 @@ Input image
   -> classify regions as text/table/diagram/image
   -> generate LaTeX dynamically
   -> include cropped diagrams/tables when reconstruction is unreliable
-  -> compile PDF or use direct image-PDF fallback when no LaTeX engine is installed
+  -> compile PDF with a LaTeX engine
 ```
 
-Tesseract is preferred when installed because it provides text coordinates and confidence values. If Tesseract is not available, the workflow uses the existing Groq vision integration when `GROQ_API_KEY` is configured. If neither OCR path is available or confidence is low, the system embeds the original image/crop instead of inventing text.
+The hosted Streamlit workflow uses Groq vision extraction for OCR and layout because it handles handwritten notes better than local OCR. If Groq is unavailable, returns no readable text, or reports low confidence, the app stops and shows the error instead of inventing content or producing an image-only PDF.
 
-PDF compilation is automatic if `tectonic`, `pdflatex`, `xelatex`, or `lualatex` is on `PATH`. Without one of those tools, the app still generates `generated.tex`, JSON evidence files, crops, and a direct image PDF fallback.
+PDF compilation is automatic if `tectonic`, `pdflatex`, `xelatex`, or `lualatex` is on `PATH`. Streamlit Cloud installs `pdflatex` through `packages.txt`. If no LaTeX engine is available, the PDF step fails visibly instead of silently falling back to a whole-image PDF.
 Generated files under `output/` and optional local compiler binaries under `tools/` are ignored by git.
 
 To generate the LaTeX outputs without the UI:
 
 ```powershell
 python generate_from_image.py --input reference.png --output output/generated.pdf
+```
+
+For strict behavior matching the hosted app, use:
+
+```powershell
+python generate_from_image.py --input reference.png --output output/generated.pdf --ocr-engine groq --no-pdf-fallback --strict
 ```
 
 On Windows, the helper script accepts one or more images:

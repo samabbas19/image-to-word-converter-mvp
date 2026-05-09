@@ -13,7 +13,7 @@ For the image-to-LaTeX/PDF pipeline, install at least one OCR path:
 ```text
 Recommended local OCR: install Tesseract and make sure `tesseract` is on PATH.
 Fallback vision OCR: set GROQ_API_KEY.
-No OCR available: the system embeds the source image/crops and logs that text extraction was unavailable.
+No OCR available: the strict hosted workflow stops and shows an error instead of producing image-only output.
 ```
 
 Install a LaTeX engine if you want `generated.tex` compiled directly:
@@ -22,7 +22,7 @@ Install a LaTeX engine if you want `generated.tex` compiled directly:
 tectonic, pdflatex, xelatex, or lualatex
 ```
 
-If no working LaTeX engine is available, the CLI still writes `generated.tex`, JSON evidence files, crops, and a direct image-PDF fallback.
+If no working LaTeX engine is available, the strict hosted workflow stops and shows an error. The repository includes `packages.txt` so Streamlit Cloud installs `pdflatex`.
 
 Create `.env` in the project root:
 

@@ -39,9 +39,11 @@ def convert_images_to_latex_pdf(
     result = generate_from_images(
         image_paths=image_paths,
         output_pdf_path=output_pdf_path,
-        preferred_ocr_engine="auto",
+        preferred_ocr_engine="groq",
         compile_pdf=compile_pdf,
-        allow_pdf_fallback=True,
+        allow_pdf_fallback=False,
+        require_text_extraction=True,
+        require_pdf=compile_pdf,
     )
     return LatexConversionResult(
         tex_path=result.tex_path,
